@@ -8,3 +8,5 @@ allowBuilds:
   # Prisma installs its migration (schema) engine during install.
   prisma: true
   "@prisma/engines": true
+  # Install-analytics script pulled in by swagger-ui-dist; not needed.
+  "@scarf/scarf": false

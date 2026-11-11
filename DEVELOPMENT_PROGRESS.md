@@ -7,9 +7,10 @@ _Last updated: 2026-11-11_
 
 ## Current status
 
-- **Current phase:** Phase 0 complete. Waiting for approval to start Phase 1
-- **Current branch:** `feature/p0-stripe-setup` (to be merged into `dev`)
-- **Next task:** Phase 1 — Stripe fundamentals lab (CLI-only object walkthrough, then the Stripe client in NestJS)
+- **Current phase:** Phase 1 complete. Waiting for approval to start Phase 2
+- **Current branch:** `feature/p1-stripe-client` (to be merged into `dev`)
+- **Next task:** Phase 2 — product catalog (Prisma models + seed, list/detail API, minimal product pages)
+- **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
 
@@ -23,6 +24,8 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 
 - `http://localhost:3000/api/*` is proxied to the API, so the browser only ever talks to the web app.
 - Health check: `curl http://localhost:3000/api/health` should return `{"status":"ok","database":"up"}` (503 if Postgres is down).
+- Stripe check: `curl http://localhost:3000/api/payments/health` should return `livemode: false`, `apiVersion`, `requestId` (503 if the key is wrong).
+- Swagger UI: http://localhost:4000/api/docs (OpenAPI JSON at `/api/docs-json`). Use **Try it out → Execute** on any endpoint.
 - Inspect data: `pnpm --filter api db:studio`.
 - Run `pnpm dev` from the **repo root** to start both apps. Inside `apps/api` it starts only the API.
 
@@ -31,8 +34,8 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | # | Phase | Status |
 |---|---|---|
 | 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
-| 1 | Stripe fundamentals lab | ⬜ Next (needs approval) |
-| 2 | Feature: product catalog | ⬜ Pending |
+| 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
+| 2 | Feature: product catalog | ⬜ Next (needs approval) |
 | 3 | Feature: demo users + cart | ⬜ Pending |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
@@ -91,6 +94,11 @@ Full reasoning lives in plan §10. One line each:
 | D24 | 2026-11-11 | Env validated with zod via `ConfigModule.forRoot({ validate })`; the API won't start with missing or bad settings |
 | D25 | 2026-11-11 | `STRIPE_SECRET_KEY` must be a sandbox key (`sk_test_`/`rk_test_`); live keys are rejected at startup |
 | D26 | 2026-11-11 | Use the sandbox secret key while learning; switch to a restricted key (`rk_test_`) in Phase 10 (Stripe recommends RAKs for production) |
+| D27 | 2026-11-11 | One Stripe client via Nest provider token `STRIPE_CLIENT` in `payments/` (pinned `2026-10-28.endive`, `maxNetworkRetries: 2`, `timeout: 20s`) |
+| D28 | 2026-11-11 | Inline `price_data` confirmed: PaymentIntents don't use Prices, and our DB stays the price source of truth |
+| D29 | 2026-11-11 | `docs/STRIPE_NOTES.md` is the revision sheet (cheat sheet + per-phase sequence/why/gotchas/Q&A), updated each phase |
+| D30 | 2026-11-11 | Swagger (`@nestjs/swagger` 12.1.1) at `/api/docs` for manual testing next to curl; `@scarf/scarf` install-analytics script denied in `allowBuilds` |
+| D31 | 2026-11-11 | One GitHub PR per feature branch into `dev` (merge commit, no squash/rebase); `.github/pull_request_template.md`; milestone PRs `dev` → `main` |
 
 ## Tool & library versions
 
@@ -107,7 +115,8 @@ Full reasoning lives in plan §10. One line each:
 | PostgreSQL | 18.6 (`postgres:18-alpine`) | Docker container `techcart-postgres`, volume `techcart-pgdata` |
 | Prisma | 7.10.1 (`prisma`, `@prisma/client`, `@prisma/adapter-pg`) | `pg` 8.23; pnpm `allowBuilds` approves `prisma` + `@prisma/engines` |
 | Config | `@nestjs/config` 12.1.1, zod 4.6.7, dotenv 18 (Prisma CLI only) | |
-| Not installed yet | — | Expected: stripe 23.1.x, @stripe/stripe-js 10.2.x |
+| stripe (Node SDK) | 23.1.0 | Pins API `2026-10-28.endive`; ESM default import `import Stripe from 'stripe'` |
+| Not installed yet | — | @stripe/stripe-js / @stripe/react-stripe-js (Phase 8 only) |
 
 ## Issues & blockers
 
@@ -117,25 +126,28 @@ Full reasoning lives in plan §10. One line each:
 
 ## Learning progress
 
-### Concepts covered
+Details, gotchas and interview Q&A live in [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md). Covered so far:
 
-- **Sandbox vs live:** isolated environments with separate keys; objects never cross; test cards simulate outcomes.
-- **API keys:** `pk_` (browser-safe, can't charge or read), `sk_` (full access, server only), `rk_` (least privilege, recommended for production), `whsec_` (not an API key; verifies webhooks).
-- **How a request authenticates:** HTTPS to `api.stripe.com` with the key as the credential; the key picks the account and environment. Responses carry `Request-Id` (for logs and support) and `Stripe-Version`.
-- **Fail-fast config:** the API refuses to start without a valid sandbox key.
+- **Phase 0:** sandbox vs live, the four key types, how a request authenticates, `Request-Id` / `Stripe-Version`, fail-fast config, Workbench logs.
+- **Phase 1:** the object chain of one payment (Customer → PaymentIntent → PaymentMethod → Charge → BalanceTransaction → Refund, with Events), fees and net, decline behavior, idempotency keys (replay and mismatch error), SDK pinning, retries and timeouts.
 
-### Interview questions answered
-
-- None yet.
-
-## Git workflow (quick reference)
+## Git workflow (quick reference): one PR per feature branch
 
 ```bash
-git switch dev                                # start from dev
-git switch -c feature/p<N>-<task>             # one branch per task
-git add <files> && git commit -m "feat(scope): ..."   # small Conventional Commits
-git switch dev && git merge --no-ff feature/p<N>-<task>  # merge commit per feature
-git switch main && git merge --no-ff dev && git tag -a vX.Y.Z -m "..."  # milestones only
+git switch dev && git pull                       # start from the latest dev
+git switch -c feature/p<N>-<task>                # one branch per task
+git add -A && git commit -m "feat(scope): ..."   # Conventional Commits
+git push -u origin feature/p<N>-<task>
+# GitHub: open PR (base: dev) → fill template → "Create a merge commit" → delete branch
+git switch dev && git pull && git branch -d feature/p<N>-<task>
+# Milestones: PR dev → main, then tag vX.Y.Z on main
 ```
 
-Never: commit on `main` directly, force-push, rebase shared branches, or commit `.env` files.
+Never: commit on `main` directly, force-push, rebase shared branches, squash/rebase-merge PRs, or commit `.env` files.
+
+## Pull requests
+
+| PR | Branch | Phase | Status |
+|---|---|---|---|
+| — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
+| (link) | `feature/p1-stripe-client` | 1 | Open |
