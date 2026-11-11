@@ -5,7 +5,6 @@ import { PrismaService } from './prisma/prisma.service.js';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
-  // GET /api/health: proves the API is up and can reach Postgres.
   @Get()
   async check() {
     try {

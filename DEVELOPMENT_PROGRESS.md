@@ -7,9 +7,9 @@ _Last updated: 2026-11-11_
 
 ## Current status
 
-- **Current phase:** Phase 0 — Foundation & Stripe account setup
-- **Current branch:** `feature/p0-db-setup` (to be merged into `dev`)
-- **Next task:** Phase 0, task 5 — Stripe sandbox test keys + Stripe CLI login (first Stripe concepts)
+- **Current phase:** Phase 0 complete. Waiting for approval to start Phase 1
+- **Current branch:** `feature/p0-stripe-setup` (to be merged into `dev`)
+- **Next task:** Phase 1 — Stripe fundamentals lab (CLI-only object walkthrough, then the Stripe client in NestJS)
 
 ## How to run
 
@@ -30,8 +30,8 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | Foundation & Stripe account setup | 🟡 In progress (tasks 1–4 done; task 5 left) |
-| 1 | Stripe fundamentals lab | ⬜ Pending |
+| 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
+| 1 | Stripe fundamentals lab | ⬜ Next (needs approval) |
 | 2 | Feature: product catalog | ⬜ Pending |
 | 3 | Feature: demo users + cart | ⬜ Pending |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
@@ -49,7 +49,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - [x] 2. pnpm workspace + Next.js (`apps/web`) and NestJS (`apps/api`) skeletons. API on :4000 under `/api`; web proxies `/api/*` to it; tests and lint pass
 - [x] 3. Docker Compose Postgres + Prisma 7 in `apps/api`, `GET /api/health` (checks DB, 503 when down)
 - [x] 4. `.env.example` files + zod env validation at API startup (folded into task 3)
-- [ ] 5. Stripe sandbox test keys + Stripe CLI installed and logged in
+- [x] 5. Stripe sandbox (US) test key in `apps/api/.env` (validated: `sk_test_`/`rk_test_` only); Stripe CLI installed and logged in; `GET /v1/balance` verified via CLI, raw curl and API boot
 
 ## Important commits
 
@@ -89,6 +89,8 @@ Full reasoning lives in plan §10. One line each:
 | D22 | 2026-11-11 | Postgres on host port 5435, bound to 127.0.0.1; `DATABASE_URL` uses `127.0.0.1`, not `localhost` |
 | D23 | 2026-11-11 | Prisma 7.10 config file is `prisma7.config.ts` (7.10 treats `prisma.config.ts` as legacy); generated client in `src/generated/prisma` (git-ignored) |
 | D24 | 2026-11-11 | Env validated with zod via `ConfigModule.forRoot({ validate })`; the API won't start with missing or bad settings |
+| D25 | 2026-11-11 | `STRIPE_SECRET_KEY` must be a sandbox key (`sk_test_`/`rk_test_`); live keys are rejected at startup |
+| D26 | 2026-11-11 | Use the sandbox secret key while learning; switch to a restricted key (`rk_test_`) in Phase 10 (Stripe recommends RAKs for production) |
 
 ## Tool & library versions
 
@@ -98,8 +100,8 @@ Full reasoning lives in plan §10. One line each:
 | pnpm | 12.8.1 | |
 | git | 2.55.0 | |
 | Docker | 29.6.1 | |
-| Stripe CLI | not installed yet | Phase 0, task 5 (`npm i -g @stripe/cli`) |
-| Stripe API version | `2026-10-28.endive` (expected) | Confirm against the SDK at install |
+| Stripe CLI | 1.55.10 | `npm i -g @stripe/cli`; logged in to the US sandbox |
+| Stripe API version | `2026-10-28.endive` | Account default (seen in the `Stripe-Version` response header); confirm the SDK pins the same in Phase 1 |
 | Next.js / React | 16.4.6 / 19.3.0 | `apps/web`, Tailwind 4.3.3, ESLint 9, TypeScript 5.9 |
 | NestJS | 12.4.2 (CLI 12.0.12) | `apps/api`, ESM, TypeScript 6.0, Vitest 4.1, oxlint 1.93 |
 | PostgreSQL | 18.6 (`postgres:18-alpine`) | Docker container `techcart-postgres`, volume `techcart-pgdata` |
@@ -111,13 +113,16 @@ Full reasoning lives in plan §10. One line each:
 
 - Resolved: Prisma couldn't reach `localhost:5435` because Windows resolves `localhost` to IPv6 `::1` first, while the container listens on IPv4 only. Fixed by using `127.0.0.1` in `DATABASE_URL`.
 - Note: `prisma init` (7.10) also writes AI-agent skill folders (`.claude/`, `.windsurf/`, `.agents/`, `skills-lock.json`). They were deleted as noise.
-- Open check: Stripe account country. It decides which delayed payment method we can test in Phase 9b (ACH needs a US account).
+- Resolved: the Stripe account is a US sandbox, so ACH Direct Debit can be tested in Phase 9b. Live mode will never be activated.
 
 ## Learning progress
 
 ### Concepts covered
 
-- None yet. Stripe concepts start with Phase 0, task 5 and Phase 1.
+- **Sandbox vs live:** isolated environments with separate keys; objects never cross; test cards simulate outcomes.
+- **API keys:** `pk_` (browser-safe, can't charge or read), `sk_` (full access, server only), `rk_` (least privilege, recommended for production), `whsec_` (not an API key; verifies webhooks).
+- **How a request authenticates:** HTTPS to `api.stripe.com` with the key as the credential; the key picks the account and environment. Responses carry `Request-Id` (for logs and support) and `Stripe-Version`.
+- **Fail-fast config:** the API refuses to start without a valid sandbox key.
 
 ### Interview questions answered
 
