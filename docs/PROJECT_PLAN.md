@@ -420,8 +420,8 @@ Branch naming is `feature/<phase>-<task>`, created from `dev`.
 
 | Layer | Tool | What |
 |---|---|---|
-| Unit | Jest (Nest default) | Totals and minor-unit math, order state-transition guards, refundable-amount calculation, idempotency-key derivation |
-| Integration / e2e | Jest + Supertest + real Postgres (separate test DB in the same Docker container) | Checkout endpoint (Stripe client replaced by a stub at the provider boundary); **webhook controller with genuinely signed payloads** using `stripe.webhooks.generateTestHeaderString` (no network); duplicate and out-of-order delivery; bad signatures |
+| Unit | Vitest (Nest 12 default) | Totals and minor-unit math, order state-transition guards, refundable-amount calculation, idempotency-key derivation |
+| Integration / e2e | Vitest + Supertest + real Postgres (separate test DB in the same Docker container) | Checkout endpoint (Stripe client replaced by a stub at the provider boundary); **webhook controller with genuinely signed payloads** using `stripe.webhooks.generateTestHeaderString` (no network); duplicate and out-of-order delivery; bad signatures |
 | Live sandbox (manual) | Stripe CLI + test cards + Dashboard | Real end-to-end flows, `stripe listen`, `stripe trigger`, `stripe events resend`, Workbench logs |
 | Frontend | Manual | Kept deliberately light |
 

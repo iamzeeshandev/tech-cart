@@ -8,14 +8,23 @@ _Last updated: 2026-11-11_
 ## Current status
 
 - **Current phase:** Phase 0 — Foundation & Stripe account setup
-- **Current branch:** `feature/p0-repo-setup`
-- **Next task:** Phase 0, task 2 — pnpm workspace with Next.js (`apps/web`) and NestJS (`apps/api`) skeletons
+- **Current branch:** `feature/p0-repo-setup` (to be merged into `dev`)
+- **Next task:** Phase 0, task 3 — Docker Compose Postgres + Prisma 7 in `apps/api` (branch `feature/p0-db-setup`)
+
+## How to run
+
+```bash
+pnpm install        # once, from the repo root
+pnpm dev            # web on http://localhost:3000, api on http://localhost:4000/api
+```
+
+`http://localhost:3000/api/*` is proxied to the API, so the browser only ever talks to the web app.
 
 ## Phases
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | Foundation & Stripe account setup | 🟡 In progress (task 1 of 5 done) |
+| 0 | Foundation & Stripe account setup | 🟡 In progress (task 2 of 5 done) |
 | 1 | Stripe fundamentals lab | ⬜ Pending |
 | 2 | Feature: product catalog | ⬜ Pending |
 | 3 | Feature: demo users + cart | ⬜ Pending |
@@ -31,7 +40,7 @@ _Last updated: 2026-11-11_
 ### Phase 0 tasks
 
 - [x] 1. Git repo (`main`, `dev`, feature branch), `.gitignore`, `.gitattributes`, README, progress file
-- [ ] 2. pnpm workspace + Next.js (`apps/web`) and NestJS (`apps/api`) skeletons
+- [x] 2. pnpm workspace + Next.js (`apps/web`) and NestJS (`apps/api`) skeletons. API on :4000 under `/api`; web proxies `/api/*` to it; tests and lint pass
 - [ ] 3. Docker Compose Postgres + Prisma 7 in `apps/api`
 - [ ] 4. `.env.example` files + env validation at API startup
 - [ ] 5. Stripe sandbox test keys + Stripe CLI installed and logged in
@@ -66,6 +75,10 @@ Full reasoning lives in plan §10. One line each:
 | D14 | 2026-11-11 | Seeded demo users via `x-demo-user-id` header; no real auth |
 | D15 | 2026-11-11 | pnpm workspace monorepo: `apps/web` + `apps/api` |
 | D16 | 2026-11-11 | PostgreSQL in Docker Compose; Prisma 7 (Prisma 8 is still RC) |
+| D17 | 2026-11-11 | Keep Nest 12 defaults: ESM-only, Vitest for tests, oxlint for lint |
+| D18 | 2026-11-11 | Next.js `rewrites` proxies `/api/*` to NestJS (`API_URL`, default `http://localhost:4000`) |
+| D19 | 2026-11-11 | Keep Next 16 generator defaults (`cacheComponents`, `partialPrefetching`); revisit only if they get in the way |
+| D20 | 2026-11-11 | Build webhook verification and idempotency by hand first; compare with Nest's `@nestjs/webhooks` / `@nestjs/idempotency` afterwards |
 
 ## Tool & library versions
 
@@ -77,7 +90,9 @@ Full reasoning lives in plan §10. One line each:
 | Docker | 29.6.1 | |
 | Stripe CLI | not installed yet | Phase 0, task 5 (`npm i -g @stripe/cli`) |
 | Stripe API version | `2026-10-28.endive` (expected) | Confirm against the SDK at install |
-| Libraries | pinned at install | Expected: next 16.4.x, @nestjs/core 12.4.x, stripe 23.1.x, prisma 7.10.x, @stripe/stripe-js 10.2.x |
+| Next.js / React | 16.4.6 / 19.3.0 | `apps/web`, Tailwind 4.3.3, ESLint 9, TypeScript 5.9 |
+| NestJS | 12.4.2 (CLI 12.0.12) | `apps/api`, ESM, TypeScript 6.0, Vitest 4.1, oxlint 1.93 |
+| Not installed yet | — | Expected: stripe 23.1.x, prisma 7.10.x, @stripe/stripe-js 10.2.x |
 
 ## Issues & blockers
 
