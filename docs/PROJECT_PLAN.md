@@ -80,7 +80,7 @@ tech-cart/
 │           ├─ refunds.service.ts         (Phase 7)
 │           ├─ payment-intents.service.ts (Phase 8)
 │           └─ reconciliation.service.ts  (Phase 6)
-├─ docker-compose.yml      postgres:17 (or current major) on 5432
+├─ docker-compose.yml      postgres:18-alpine on 127.0.0.1:5435
 ├─ pnpm-workspace.yaml
 ├─ DEVELOPMENT_PROGRESS.md
 └─ .env.example files      (real .env files are git-ignored)
@@ -91,7 +91,7 @@ tech-cart/
 - `PaymentsModule` talks to Stripe and calls `OrdersService` to change order state.
 - Stripe SDK calls appear nowhere outside `payments/`.
 
-**Ports:** web `3000`, api `4000` (global prefix `/api`), Postgres `5432`.
+**Ports:** web `3000`, api `4000` (global prefix `/api`), Postgres `5435` on the host (5432–5434 are used by other local projects).
 
 ---
 
@@ -263,8 +263,8 @@ Branch naming is `feature/<phase>-<task>`, created from `dev`.
 - **Tasks:**
   1. `git init`, `main` and `dev` branches, `.gitignore`, `DEVELOPMENT_PROGRESS.md`. I explain each command first.
   2. pnpm workspace with Next.js and NestJS skeletons, both booting.
-  3. `docker-compose.yml` for Postgres; Prisma 7 initialized in `apps/api` (`prisma.config.ts`, `@prisma/adapter-pg`); first empty migration.
-  4. `.env.example` files and env validation at API startup.
+  3. `docker-compose.yml` for Postgres; Prisma 7 initialized in `apps/api` (`prisma7.config.ts`, `@prisma/adapter-pg`); `.env.example` files; env validation at API startup (zod); `GET /api/health` checks the DB. The first real migration comes in Phase 2.
+  4. *(Folded into task 3.)*
   5. You create or open a Stripe account sandbox and copy the test keys into `.env`. Install the Stripe CLI (`npm i -g @stripe/cli`) and run `stripe login`.
 - **Deliverables:** both apps run, the DB is reachable, the Stripe CLI is authenticated, and the first commits are on `dev`.
 - **Branches:** `feature/p0-repo-setup`, `feature/p0-db-setup`.
@@ -418,12 +418,16 @@ Branch naming is `feature/<phase>-<task>`, created from `dev`.
 
 ## 8. Testing Strategy
 
-| Layer | Tool | What |
-|---|---|---|
-| Unit | Vitest (Nest 12 default) | Totals and minor-unit math, order state-transition guards, refundable-amount calculation, idempotency-key derivation |
-| Integration / e2e | Vitest + Supertest + real Postgres (separate test DB in the same Docker container) | Checkout endpoint (Stripe client replaced by a stub at the provider boundary); **webhook controller with genuinely signed payloads** using `stripe.webhooks.generateTestHeaderString` (no network); duplicate and out-of-order delivery; bad signatures |
-| Live sandbox (manual) | Stripe CLI + test cards + Dashboard | Real end-to-end flows, `stripe listen`, `stripe trigger`, `stripe events resend`, Workbench logs |
-| Frontend | Manual | Kept deliberately light |
+**Approach (updated 2026-11-11): practical testing, no `*.spec.ts` files.** We test the real behavior of what we build instead of writing unit tests. Each task ends with a short, repeatable test recipe.
+
+| What | How |
+|---|---|
+| API endpoints | `curl` / browser against the running app, checking status codes and bodies |
+| Database state | Prisma Studio (`pnpm --filter api db:studio`) or `psql` in the container, checking rows after each flow |
+| Stripe flows | Real sandbox: test cards on hosted Checkout, Stripe Dashboard and Workbench logs |
+| Webhooks | Stripe CLI: `stripe listen --forward-to ...`, `stripe trigger`, `stripe events resend` (duplicates), stopping the API to force retries |
+| Security checks | Sending tampered or unsigned webhook requests with `curl` and confirming a 400 |
+| Frontend | Manual, kept deliberately light |
 
 **Manual test matrix (grows each phase):**
 | Scenario | Trigger | Expected |
@@ -522,7 +526,7 @@ Any uncertain Stripe behavior gets checked against docs.stripe.com before we cod
   - Run `stripe events resend <evt>` and confirm nothing changes.
   - Check the Dashboard: the PI metadata contains our `orderId`.
 - **Milestone 2 (after P7):** a partial and then a full refund show correct statuses and amounts in our DB and in the Dashboard. A Dashboard-initiated refund syncs. The failing-refund card ends `FAILED`.
-- **Each phase:** `pnpm --filter api test` and `test:e2e` pass, the manual matrix rows for that phase pass, and the progress file is updated.
+- **Each phase:** the phase's manual test recipe and matrix rows pass, `pnpm --filter api build` and `pnpm lint` are clean, and the progress file is updated.
 
 ---
 

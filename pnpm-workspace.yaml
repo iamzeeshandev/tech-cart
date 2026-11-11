@@ -5,3 +5,6 @@ packages:
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  # Prisma installs its migration (schema) engine during install.
+  prisma: true
+  "@prisma/engines": true

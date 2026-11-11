@@ -9,6 +9,8 @@
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter api dev",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint"
   }
