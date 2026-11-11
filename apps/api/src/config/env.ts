@@ -5,6 +5,10 @@ import { z } from 'zod';
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  // Sandbox keys only: a live key pasted by mistake must never charge real cards here.
+  STRIPE_SECRET_KEY: z
+    .string()
+    .regex(/^(sk|rk)_test_\w+$/, 'must be a sandbox key (sk_test_... or rk_test_...)'),
 });
 
 export type Env = z.infer<typeof envSchema>;

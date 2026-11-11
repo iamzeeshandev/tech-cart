@@ -6,7 +6,6 @@ import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
-    // Loads apps/api/.env, validates it, and makes ConfigService available everywhere.
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     PrismaModule,
   ],
