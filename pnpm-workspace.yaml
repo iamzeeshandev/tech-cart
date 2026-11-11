@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+
+# pnpm only runs install scripts for packages listed as true here.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
