@@ -449,19 +449,20 @@ Branch naming is `feature/<phase>-<task>`, created from `dev`.
 ## 9. Git Branching & Commit Strategy
 
 - **Branches:** `main` holds stable milestones. `dev` is for integration. Each task gets `feature/p<N>-<task>` from `dev`. Nobody works on `main` directly.
-- **Flow (I explain each command before it runs):**
-  1. `git switch dev && git switch -c feature/p4-checkout-session`
-  2. Commit small steps.
-  3. `git switch dev && git merge --no-ff feature/p4-checkout-session`. `--no-ff` keeps a visible merge commit per feature.
-  4. At a milestone: `git switch main && git merge --no-ff dev && git tag -a v0.1.0 -m "..."`.
-  5. Optional cleanup with the safe `git branch -d`.
+- **Flow (updated 2026-11-11: one PR per feature branch; the user runs all git commands):**
+  1. `git switch dev && git pull`, then `git switch -c feature/p4-checkout-session`
+  2. Commit small steps, then `git push -u origin feature/p4-checkout-session`.
+  3. On GitHub: open a PR with **base `dev`**. The body comes from `.github/pull_request_template.md`.
+  4. Merge with **"Create a merge commit"** (no squash or rebase, so history is never rewritten), then delete the remote branch.
+  5. Locally: `git switch dev && git pull && git branch -d feature/p4-checkout-session`.
+  6. At a milestone: a PR from `dev` → `main`, then tag `v0.1.0` on `main`.
 - **Never:** force-push, rebase shared branches, amend pushed commits, or commit `.env`.
 - **Conventional Commits** with scopes `repo`, `api`, `web`, `db`, `payments`, `webhooks`, `orders`, `progress`. Examples:
   - `feat(payments): create Checkout Session for pending orders`
   - `fix(webhooks): ignore events without orderId metadata`
   - `test(webhooks): cover duplicate event delivery`
   - `docs(progress): complete phase 4`
-- **Remote:** local only for now. A GitHub remote can be added any time without changing the flow.
+- **Remote:** GitHub `origin`. PR descriptions double as a per-feature record (what, Stripe concepts, how to test).
 - **`DEVELOPMENT_PROGRESS.md`** sections: Completed phases · Pending phases · Current branch · Important commits · Technical decisions (ADR-style one-liners) · Issues & blockers · Learning progress (concepts mastered + interview Qs answered) · Next task. Updated at every phase end and at notable task ends.
 
 ---
