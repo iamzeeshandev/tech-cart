@@ -41,7 +41,19 @@ const products = [
     description: 'Discontinued USB-A docking station.' },
 ];
 
+// Fixed ids so curl/Swagger examples work as-is: -H 'x-demo-user-id: demo-sarah'.
+// yopmail.com inboxes are public, so any email Stripe sends in Phase 4+ can be opened.
+const users = [
+  { id: 'demo-sarah', email: 'sarah.mitchell@yopmail.com', name: 'Sarah Mitchell' },
+  { id: 'demo-james', email: 'james.carter@yopmail.com', name: 'James Carter' },
+  { id: 'demo-emily', email: 'emily.watson@yopmail.com', name: 'Emily Watson' },
+];
+
 async function main() {
+  for (const { id, ...user } of users) {
+    await prisma.user.upsert({ where: { id }, update: user, create: { id, ...user } });
+  }
+
   for (const category of categories) {
     await prisma.category.upsert({
       where: { slug: category.slug },
@@ -66,7 +78,9 @@ async function main() {
     });
   }
 
-  console.log(`Seeded ${categories.length} categories and ${products.length} products.`);
+  console.log(
+    `Seeded ${users.length} users, ${categories.length} categories and ${products.length} products.`,
+  );
 }
 
 try {

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AddToCartButton } from "@/components/add-to-cart-button";
 import { StockLabel } from "@/components/stock-label";
 import { getProduct } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
@@ -36,6 +37,10 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
             <StockLabel quantity={product.inventory?.quantityAvailable ?? 0} />
           </div>
           <p className="mt-4">{product.description}</p>
+          <AddToCartButton
+            productId={product.id}
+            disabled={(product.inventory?.quantityAvailable ?? 0) === 0}
+          />
         </div>
       </div>
     </main>

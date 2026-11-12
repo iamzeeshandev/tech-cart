@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Suspense } from "react";
+import { DemoUserMenu } from "@/components/demo-user-menu";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,10 +28,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <header className="border-b border-zinc-500/30">
-          <nav className="mx-auto w-full max-w-5xl px-6 py-4">
+          <nav className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-4">
             <Link href="/" className="font-semibold">
               TechCart
             </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/cart" className="text-sm hover:underline">
+                Cart
+              </Link>
+              <Suspense fallback={null}>
+                <DemoUserMenu />
+              </Suspense>
+            </div>
           </nav>
         </header>
         {children}
