@@ -7,9 +7,9 @@ _Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 2 complete (PR into `dev` pending). Waiting for approval to start Phase 3
-- **Current branch:** `feature/p2-catalog` (one branch and one PR for the whole phase, one commit per task)
-- **Next task:** Phase 3: demo users (`x-demo-user-id`) + cart
+- **Current phase:** Phase 3 in progress. Task 1 (demo users + cart API) done; task 2 (user switcher, add to cart, cart page) next
+- **Current branch:** `feature/p3-cart` (one branch and one PR for the phase, one commit per task)
+- **Next task:** Phase 3 task 2: web user switcher, add-to-cart button, cart page
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -29,6 +29,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - Stripe check: `curl http://localhost:3000/api/payments/health` should return `livemode: false`, `apiVersion`, `requestId` (503 if the key is wrong).
 - Catalog: `curl http://localhost:3000/api/products` (9 active products) and `curl http://localhost:3000/api/products/orbit-mini`.
 - Store pages: http://localhost:3000 (product grid) and http://localhost:3000/products/orbit-mini (detail).
+- Cart (needs a demo user): `curl -H "x-demo-user-id: demo-sarah" http://localhost:3000/api/cart`. In Swagger, click **Authorize** and enter `demo-sarah`. Users: `GET /api/demo-users`.
 - Swagger UI: http://localhost:4000/api/docs (OpenAPI JSON at `/api/docs-json`). Use **Try it out → Execute** on any endpoint.
 - Inspect data: `pnpm --filter api db:studio`.
 - Run `pnpm dev` from the **repo root** to start both apps. Inside `apps/api` it starts only the API.
@@ -40,7 +41,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
 | 2 | Feature: product catalog | ✅ Done (2026-11-12) |
-| 3 | Feature: demo users + cart | ⬜ Pending |
+| 3 | Feature: demo users + cart | 🔄 In progress |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
 | 6 | Payment reliability & reconciliation | ⬜ Pending |
@@ -62,6 +63,11 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 
 - [x] 1. `Category`/`Product`/`Inventory` models + first migration (`catalog`); re-runnable seed (4 categories, 10 products incl. edge cases); `GET /api/products`, `GET /api/products/:slug` (404 for unknown or inactive), in Swagger. API restructured into `src/modules/{health,product,payment}` (controller/service/module each)
 - [x] 2. Product grid (`/`) and detail page (`/products/[slug]`, 404 for unknown or inactive) in `apps/web`; prices formatted from cents for display only; stock labels; `next build` passes with Cache Components
+
+### Phase 3 tasks
+
+- [x] 1. `User` (+ `stripeCustomerId`, unused until Phase 4) and `CartItem` models + migration `demo_users_cart`; 3 seeded demo users; `DemoUserGuard` + `@CurrentUser()`; `GET /api/demo-users`; `GET /api/cart`, `POST /api/cart/items`, `PATCH`/`DELETE /api/cart/items/:itemId`; zod body validation; Swagger Authorize
+- [ ] 2. Web: demo-user switcher (cookie), add-to-cart button, cart page with quantity controls and display subtotal
 
 ## Important commits
 
@@ -120,6 +126,12 @@ Full reasoning lives in plan §10. One line each:
 | D41 | 2026-11-12 | One root `app/loading.tsx` provides the Suspense boundary Cache Components requires for request-time data (pages become Partial Prerender: static shell + streamed data) |
 | D42 | 2026-11-12 | `formatMoney` (Intl, the currency's own decimals) is display-only; amounts stay integer minor units everywhere else |
 | D43 | 2026-11-12 | `next/image` with `remotePatterns` limited to `https://placehold.co/600x400/png` (query left open because the label is in `?text=`); plain Tailwind, no shadcn yet |
+| D44 | 2026-11-12 | The cart is the user's `CartItem` rows (no `Cart` table); `@@unique([userId, productId])`; no prices stored in the cart |
+| D45 | 2026-11-12 | `DemoUserGuard` reads `x-demo-user-id`, loads the user (401 if missing or unknown) and `@CurrentUser()` exposes it, the same shape a real auth guard would have. Seeded ids are fixed (`demo-sarah`, `demo-james`, `demo-emily`); emails use public `@yopmail.com` inboxes |
+| D49 | 2026-11-12 | The user runs every migration and seed command (`migrate dev/reset/deploy`, `db:seed`) themselves; Claude provides each command with its purpose |
+| D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
+| D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
+| D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |
 
 ## Tool & library versions
 
@@ -175,4 +187,5 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 |---|---|---|---|
 | — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
-| (link) | `feature/p2-catalog` | 2 | Open |
+| [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
+| — | `feature/p3-cart` | 3 | In progress |

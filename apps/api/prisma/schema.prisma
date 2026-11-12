@@ -25,9 +25,9 @@ model Product {
   // Minor units (cents), the same integer Stripe expects in `unit_amount`. Floats can't hold money exactly.
   priceAmount Int
   currency    String     @default("usd")
-  // Hidden products stay in the DB so old orders can still point at them.
   isActive    Boolean    @default(true)
   inventory   Inventory?
+  cartItems   CartItem[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -40,4 +40,27 @@ model Inventory {
   quantityAvailable Int
   // Held by unpaid orders during Checkout (Phase 4).
   quantityReserved  Int     @default(0)
+}
+
+model User {
+  id               String     @id @default(cuid())
+  email            String     @unique
+  name             String
+  // Set once in Phase 4, then reused so every payment links to the same Stripe Customer.
+  stripeCustomerId String?    @unique
+  cartItems        CartItem[]
+  createdAt        DateTime   @default(now())
+}
+
+// The cart is just the user's CartItem rows. Prices are never stored here: checkout re-reads them.
+model CartItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
 }
