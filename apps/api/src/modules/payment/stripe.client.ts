@@ -1,7 +1,7 @@
 import type { Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
-import type { Env } from '../config/env.js';
+import type { Env } from '../../config/env.js';
 
 export const STRIPE_CLIENT = Symbol('STRIPE_CLIENT');
 

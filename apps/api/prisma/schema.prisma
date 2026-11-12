@@ -6,3 +6,38 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id          String     @id @default(cuid())
+  categoryId  String
+  category    Category   @relation(fields: [categoryId], references: [id])
+  name        String
+  slug        String     @unique
+  description String
+  imageUrl    String?
+  // Minor units (cents), the same integer Stripe expects in `unit_amount`. Floats can't hold money exactly.
+  priceAmount Int
+  currency    String     @default("usd")
+  // Hidden products stay in the DB so old orders can still point at them.
+  isActive    Boolean    @default(true)
+  inventory   Inventory?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([categoryId])
+}
+
+model Inventory {
+  productId         String  @id
+  product           Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantityAvailable Int
+  // Held by unpaid orders during Checkout (Phase 4).
+  quantityReserved  Int     @default(0)
+}

@@ -67,19 +67,23 @@ tech-cart/
 │  └─ api/                 NestJS 12 + Prisma 7 + stripe-node 23
 │     ├─ prisma/           schema.prisma, migrations/, seed.ts
 │     └─ src/
+│        ├─ config/        env validation (zod)
+│        ├─ prisma/        PrismaService (global infrastructure, not a feature)
+│        ├─ generated/     Prisma client output (git-ignored)
 │        ├─ common/        demo-user decorator/guard, money helpers
-│        ├─ prisma/        PrismaService (global)
-│        ├─ catalog/       products & categories (read-only)
-│        ├─ cart/          cart + items
-│        ├─ orders/        order creation, state transitions, inventory reservation
-│        └─ payments/      THE ONLY MODULE THAT IMPORTS `stripe`
-│           ├─ stripe.provider.ts         single configured Stripe client
-│           ├─ checkout.service.ts        Checkout Sessions
-│           ├─ webhooks.controller.ts     raw-body endpoint + signature check
-│           ├─ stripe-events.service.ts   dedup log + dispatch by event type
-│           ├─ refunds.service.ts         (Phase 7)
-│           ├─ payment-intents.service.ts (Phase 8)
-│           └─ reconciliation.service.ts  (Phase 6)
+│        └─ modules/       one folder per feature: <name>.controller/.service/.module.ts
+│           ├─ health/     DB health check
+│           ├─ product/    products & categories (read-only)
+│           ├─ cart/       cart + items
+│           ├─ order/      order creation, state transitions, inventory reservation
+│           └─ payment/    THE ONLY MODULE THAT IMPORTS `stripe`
+│              ├─ stripe.client.ts           single configured Stripe client
+│              ├─ checkout.service.ts        Checkout Sessions
+│              ├─ webhook.controller.ts      raw-body endpoint + signature check
+│              ├─ stripe-event.service.ts    dedup log + dispatch by event type
+│              ├─ refund.service.ts          (Phase 7)
+│              ├─ payment-intent.service.ts  (Phase 8)
+│              └─ reconciliation.service.ts  (Phase 6)
 ├─ docker-compose.yml      postgres:18-alpine on 127.0.0.1:5435
 ├─ pnpm-workspace.yaml
 ├─ DEVELOPMENT_PROGRESS.md
@@ -87,9 +91,10 @@ tech-cart/
 ```
 
 **Boundary rules:**
-- `OrdersService` owns order and inventory state transitions (`markPaid`, `markProcessing`, `releaseReservation`, ...). It never calls Stripe.
-- `PaymentsModule` talks to Stripe and calls `OrdersService` to change order state.
-- Stripe SDK calls appear nowhere outside `payments/`.
+- Controllers only handle HTTP (route, params, Swagger). Services hold the logic and are the only place that calls Prisma or Stripe.
+- `OrderService` owns order and inventory state transitions (`markPaid`, `markProcessing`, `releaseReservation`, ...). It never calls Stripe.
+- `PaymentModule` talks to Stripe and calls `OrderService` to change order state.
+- Stripe SDK calls appear nowhere outside `modules/payment/`.
 
 **Ports:** web `3000`, api `4000` (global prefix `/api`), Postgres `5435` on the host (5432–5434 are used by other local projects).
 
@@ -483,7 +488,7 @@ Branch naming is `feature/<phase>-<task>`, created from `dev`.
 | 10 | Order 1-n Payment (attempts) | Supports retries, re-created sessions, and both flows on one model |
 | 11 | `StripeEvent` log + guarded transitions inside DB transactions | Dedup, auditability, safe against out-of-order and concurrent delivery |
 | 12 | Synchronous, fast webhook processing (no queue) | Avoids Redis/BullMQ infrastructure; the production queue pattern is explained in P6 and P10 |
-| 13 | Only `payments/` imports `stripe` | One place to audit, mock and upgrade Stripe usage |
+| 13 | Only `modules/payment/` imports `stripe` | One place to audit, mock and upgrade Stripe usage |
 | 14 | Demo-user header, no auth; dev-only admin panel | Your choice; keeps focus on payments |
 | 15 | Prisma 7.x stable (Prisma 8 is still RC) with `@prisma/adapter-pg` | Avoids pre-release churn |
 | 16 | Versions pinned at install: Next.js 16.x, NestJS 12.x, stripe 23.x, @stripe/stripe-js 10.x, Prisma 7.10.x | Reproducible builds; exact versions recorded in the progress file |

@@ -7,7 +7,6 @@ import type { Env } from '../config/env.js';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
   constructor(config: ConfigService<Env, true>) {
-    // Prisma 7 talks to Postgres through a driver adapter (node-postgres here).
     super({
       adapter: new PrismaPg({
         connectionString: config.get('DATABASE_URL', { infer: true }),
@@ -15,7 +14,6 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
     });
   }
 
-  // Close the connection pool when the app shuts down (e.g. on watch restarts).
   async onModuleDestroy() {
     await this.$disconnect();
   }
