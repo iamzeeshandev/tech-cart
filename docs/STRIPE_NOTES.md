@@ -100,7 +100,7 @@ Revision sheet: the cheat sheet first, then each phase in build order. Update ru
 - Stripe masks keys in error messages; never log keys yourself.
 - `curl --retry` retries on 503 too, which matters when testing failure paths.
 
-**Code:** `apps/api/src/payments/stripe.client.ts`, `apps/api/src/payments/payments.controller.ts` · try it: `curl localhost:4000/api/payments/health` or Swagger at `localhost:4000/api/docs`
+**Code:** `apps/api/src/modules/payment/stripe.client.ts`, `payment.service.ts` (the Stripe call), `payment.controller.ts` (route) · try it: `curl localhost:4000/api/payments/health` or Swagger at `localhost:4000/api/docs`
 - In Workbench, SDK calls show **"Specified by request"** and user agent `Stripe/v1 NodeBindings/23.1.0 TechCart`; curl calls show "Specified by account default". That difference is the version pin, visible.
 - HTTP status of failures in Workbench: **402** = card declined (`card_error`), **400** = bad request or idempotency mismatch, **401** = bad key.
 - **Logs vs Events:** Logs = every request someone *sent* (reads, writes, errors). Events = state *changes* only: reads never create events, a 400 creates none, a 402 decline does (the attempt happened). `event.request.id` names the request that caused it; `null` means Stripe changed something on its own.

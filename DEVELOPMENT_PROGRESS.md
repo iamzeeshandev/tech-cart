@@ -3,13 +3,13 @@
 Learning project: Stripe integration across Next.js, NestJS and PostgreSQL.
 Full plan: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 
-_Last updated: 2026-11-11_
+_Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 1 complete. Waiting for approval to start Phase 2
-- **Current branch:** `feature/p1-stripe-client` (to be merged into `dev`)
-- **Next task:** Phase 2 — product catalog (Prisma models + seed, list/detail API, minimal product pages)
+- **Current phase:** Phase 2 in progress. Task 1 (catalog API) done; task 2 (product pages) next
+- **Current branch:** `feature/p2-catalog` (one branch and one PR for the whole phase, one commit per task)
+- **Next task:** Phase 2 task 2: minimal product list and detail pages in `apps/web`
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -18,13 +18,16 @@ _Last updated: 2026-11-11_
 pnpm install                      # once, from the repo root
 cp apps/api/.env.example apps/api/.env   # once
 pnpm db:up                        # Postgres 18 in Docker on 127.0.0.1:5435
-pnpm --filter api db:generate     # once, and after every schema change
+pnpm --filter api db:migrate      # apply migrations (and create one after a schema edit)
+pnpm --filter api db:generate     # Prisma 7: migrate no longer generates the client
+pnpm --filter api db:seed         # Prisma 7: never runs automatically; safe to re-run
 pnpm dev                          # web http://localhost:3000, api http://localhost:4000/api
 ```
 
 - `http://localhost:3000/api/*` is proxied to the API, so the browser only ever talks to the web app.
 - Health check: `curl http://localhost:3000/api/health` should return `{"status":"ok","database":"up"}` (503 if Postgres is down).
 - Stripe check: `curl http://localhost:3000/api/payments/health` should return `livemode: false`, `apiVersion`, `requestId` (503 if the key is wrong).
+- Catalog: `curl http://localhost:3000/api/products` (9 active products) and `curl http://localhost:3000/api/products/orbit-mini`.
 - Swagger UI: http://localhost:4000/api/docs (OpenAPI JSON at `/api/docs-json`). Use **Try it out → Execute** on any endpoint.
 - Inspect data: `pnpm --filter api db:studio`.
 - Run `pnpm dev` from the **repo root** to start both apps. Inside `apps/api` it starts only the API.
@@ -35,7 +38,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 |---|---|---|
 | 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
-| 2 | Feature: product catalog | ⬜ Next (needs approval) |
+| 2 | Feature: product catalog | 🔄 In progress |
 | 3 | Feature: demo users + cart | ⬜ Pending |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
@@ -53,6 +56,11 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - [x] 3. Docker Compose Postgres + Prisma 7 in `apps/api`, `GET /api/health` (checks DB, 503 when down)
 - [x] 4. `.env.example` files + zod env validation at API startup (folded into task 3)
 - [x] 5. Stripe sandbox (US) test key in `apps/api/.env` (validated: `sk_test_`/`rk_test_` only); Stripe CLI installed and logged in; `GET /v1/balance` verified via CLI, raw curl and API boot
+
+### Phase 2 tasks
+
+- [x] 1. `Category`/`Product`/`Inventory` models + first migration (`catalog`); re-runnable seed (4 categories, 10 products incl. edge cases); `GET /api/products`, `GET /api/products/:slug` (404 for unknown or inactive), in Swagger. API restructured into `src/modules/{health,product,payment}` (controller/service/module each)
+- [ ] 2. Minimal product list and detail pages in `apps/web` (prices formatted from cents for display only)
 
 ## Important commits
 
@@ -80,7 +88,7 @@ Full reasoning lives in plan §10. One line each:
 | D10 | 2026-11-11 | Order has many Payments (one per attempt) |
 | D11 | 2026-11-11 | `StripeEvent` table for dedup + guarded status transitions in DB transactions |
 | D12 | 2026-11-11 | Webhooks processed synchronously (no queue infrastructure) |
-| D13 | 2026-11-11 | Only the `payments` module imports the Stripe SDK |
+| D13 | 2026-11-11 | Only the payment module (`modules/payment/`) imports the Stripe SDK |
 | D14 | 2026-11-11 | Seeded demo users via `x-demo-user-id` header; no real auth |
 | D15 | 2026-11-11 | pnpm workspace monorepo: `apps/web` + `apps/api` |
 | D16 | 2026-11-11 | PostgreSQL in Docker Compose; Prisma 7 (Prisma 8 is still RC) |
@@ -94,11 +102,19 @@ Full reasoning lives in plan §10. One line each:
 | D24 | 2026-11-11 | Env validated with zod via `ConfigModule.forRoot({ validate })`; the API won't start with missing or bad settings |
 | D25 | 2026-11-11 | `STRIPE_SECRET_KEY` must be a sandbox key (`sk_test_`/`rk_test_`); live keys are rejected at startup |
 | D26 | 2026-11-11 | Use the sandbox secret key while learning; switch to a restricted key (`rk_test_`) in Phase 10 (Stripe recommends RAKs for production) |
-| D27 | 2026-11-11 | One Stripe client via Nest provider token `STRIPE_CLIENT` in `payments/` (pinned `2026-10-28.endive`, `maxNetworkRetries: 2`, `timeout: 20s`) |
+| D27 | 2026-11-11 | One Stripe client via Nest provider token `STRIPE_CLIENT` in `modules/payment/` (pinned `2026-10-28.endive`, `maxNetworkRetries: 2`, `timeout: 20s`) |
 | D28 | 2026-11-11 | Inline `price_data` confirmed: PaymentIntents don't use Prices, and our DB stays the price source of truth |
 | D29 | 2026-11-11 | `docs/STRIPE_NOTES.md` is the revision sheet (cheat sheet + per-phase sequence/why/gotchas/Q&A), updated each phase |
 | D30 | 2026-11-11 | Swagger (`@nestjs/swagger` 12.1.1) at `/api/docs` for manual testing next to curl; `@scarf/scarf` install-analytics script denied in `allowBuilds` |
 | D31 | 2026-11-11 | One GitHub PR per feature branch into `dev` (merge commit, no squash/rebase); `.github/pull_request_template.md`; milestone PRs `dev` → `main` |
+| D32 | 2026-11-12 | Small phases use one branch + one PR per phase, one commit per task (Phase 2: `feature/p2-catalog`) |
+| D33 | 2026-11-12 | IDs are `cuid()` strings; stock lives in a separate `Inventory` row (1–1 with `Product`) so reservation updates touch only stock |
+| D34 | 2026-11-12 | Products are soft-hidden with `isActive`, never deleted, so future orders keep valid references |
+| D35 | 2026-11-12 | Product API returns an explicit Prisma `select` (public fields only); lookup by slug uses `findUnique` (slug is `@unique`) |
+| D36 | 2026-11-12 | Seed upserts by slug and never resets stock; includes edge-case products: 1 in stock (`orbit-mini`), 0 in stock (`echo-buds`), $0.35 below Stripe's $0.50 minimum (`cable-ties`), inactive (`retro-dock`) |
+| D37 | 2026-11-12 | Seed runs with `tsx` (Prisma's documented runner); esbuild's install script denied in `allowBuilds` (pnpm already installs its platform binary) |
+| D38 | 2026-11-12 | Product images are placeholder PNG URLs (placehold.co) so Stripe Checkout can display them later via `product_data.images` |
+| D39 | 2026-11-12 | Feature modules live in `src/modules/<name>/` (singular) as `<name>.controller.ts` / `.service.ts` / `.module.ts`. Controllers handle HTTP only; services are the only place that calls Prisma or Stripe. Infrastructure (`prisma/`, `config/`, `generated/`) stays outside `modules/`. URLs stay plural (`/api/products`) |
 
 ## Tool & library versions
 
@@ -150,4 +166,5 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | PR | Branch | Phase | Status |
 |---|---|---|---|
 | — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
-| (link) | `feature/p1-stripe-client` | 1 | Open |
+| [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
+| — | `feature/p2-catalog` | 2 | In progress |
