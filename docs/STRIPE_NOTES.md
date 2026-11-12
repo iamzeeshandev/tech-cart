@@ -18,7 +18,7 @@ Revision sheet: the cheat sheet first, then each phase in build order. Update ru
 
 **Who calls whom:** our server → Stripe (requests, Workbench **Logs**) · customer's browser → Stripe-hosted Checkout (card data never touches us) · Stripe → our server (**Events** delivered as webhooks, Workbench **Webhooks**).
 
-**Money:** integers in minor units. `129900` = $1,299.00. Zero-decimal currencies (e.g. JPY) have no ×100.
+**Money:** integers in minor units. `129900` = $1,299.00. Zero-decimal currencies (e.g. JPY) have no ×100. Lowercase currency codes (`usd`). Minimum charge **$0.50 USD** (depends on settlement currency). Max: 8 digits for most methods (`99999999`), up to 12 for cards.
 
 **Objects (ID prefix)**
 | Object | Prefix | One-liner |
@@ -120,3 +120,38 @@ new Stripe(key, { apiVersion: '2026-10-28.endive', maxNetworkRetries: 2, timeout
 - **Workbench Logs vs Events?** Logs record requests sent *to* Stripe. Events record what *changed* as a result, or on Stripe's own schedule. One request can cause several events; some events have no request at all (async changes), which is exactly why you need webhooks.
 - **How do you trace an event back to its cause?** `event.request.id` (plus `request.idempotency_key`) points to the request in Workbench Logs. If it's null, Stripe made the change itself, e.g. the fee being attached or a refund settling.
 - **How do you debug one failed Stripe call?** Take `requestId` from the error (or `lastResponse`) and open it in Workbench → Logs: request, response, API version, key.
+
+---
+
+## Phase 2 — Catalog: prices the server trusts
+
+**Goal:** prices live in our DB as integer minor units, ready to go to Stripe unchanged. No Stripe calls in this phase.
+
+**Sequence**
+1. `Product.priceAmount Int` (cents) + `currency` (`usd`); stock in `Inventory` (`quantityAvailable`, `quantityReserved`).
+2. Seed upserts by slug and never resets stock. Edge-case rows: 1 left, 0 left, $0.35, inactive.
+3. `GET /api/products` and `/api/products/:slug` return a `select` whitelist; inactive or unknown → 404.
+4. Next.js Server Components fetch the API on every request (uncached) and format cents for display only.
+5. Phase 4: checkout re-reads `priceAmount` from the DB into `price_data.unit_amount`. The browser never sends amounts.
+
+**Why**
+- **Integers:** floats can't hold most decimals exactly, and Stripe uses integer minor units, so the stored value crosses the boundary with no conversion.
+- **Uncached catalog reads:** displayed stock and price stay close to what checkout will use. Display is never authoritative; checkout re-reads.
+- **Soft hide (`isActive`):** orders and refunds will reference products, so products are never deleted.
+
+**Gotchas**
+- Below Stripe's minimum ($0.50 USD) the charge is rejected. Check it in our API before calling Stripe; Phase 4 records the exact Stripe error.
+- Zero-decimal (JPY): `amount: 500` = ¥500. Code that always multiplies by 100 overcharges 100×.
+- ISK and UGX are zero-decimal, yet Stripe still expects them as two-decimal values (×100). `Intl`'s decimals don't match Stripe there.
+
+**Code:** `apps/api/prisma/schema.prisma`, `apps/api/prisma/seed.ts`, `apps/api/src/modules/product/product.service.ts`, `apps/web/src/lib/money.ts`
+```ts
+format.format(amount / 10 ** format.resolvedOptions().maximumFractionDigits) // display only
+```
+
+**Q&A**
+- **Why store money as integers in minor units?** Floats can't represent most decimal fractions exactly (0.1 + 0.2 ≠ 0.3), so totals drift by cents. Stripe uses integer minor units too, so the DB value goes to Stripe unchanged.
+- **What's a zero-decimal currency?** A currency without a minor unit, like JPY: `amount: 500` means ¥500. Always multiplying by 100 would charge 100× too much.
+- **The page shows $1,299 and a user edits the request to $1. What gets charged?** $1,299. The server ignores client amounts and builds `unit_amount` from the DB at checkout.
+- **A cart totals $0.35. Where should it fail?** In our API, before calling Stripe: a clear 400 error, and no order or session that can never be paid. Stripe rejecting it is only the backstop.
+- **Why not delete discontinued products?** Orders and refunds point at them. `isActive: false` only hides them from the catalog.

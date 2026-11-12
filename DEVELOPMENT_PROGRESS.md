@@ -7,9 +7,9 @@ _Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 2 in progress. Task 1 (catalog API) done; task 2 (product pages) next
+- **Current phase:** Phase 2 complete (PR into `dev` pending). Waiting for approval to start Phase 3
 - **Current branch:** `feature/p2-catalog` (one branch and one PR for the whole phase, one commit per task)
-- **Next task:** Phase 2 task 2: minimal product list and detail pages in `apps/web`
+- **Next task:** Phase 3: demo users (`x-demo-user-id`) + cart
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -28,6 +28,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - Health check: `curl http://localhost:3000/api/health` should return `{"status":"ok","database":"up"}` (503 if Postgres is down).
 - Stripe check: `curl http://localhost:3000/api/payments/health` should return `livemode: false`, `apiVersion`, `requestId` (503 if the key is wrong).
 - Catalog: `curl http://localhost:3000/api/products` (9 active products) and `curl http://localhost:3000/api/products/orbit-mini`.
+- Store pages: http://localhost:3000 (product grid) and http://localhost:3000/products/orbit-mini (detail).
 - Swagger UI: http://localhost:4000/api/docs (OpenAPI JSON at `/api/docs-json`). Use **Try it out → Execute** on any endpoint.
 - Inspect data: `pnpm --filter api db:studio`.
 - Run `pnpm dev` from the **repo root** to start both apps. Inside `apps/api` it starts only the API.
@@ -38,7 +39,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 |---|---|---|
 | 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
-| 2 | Feature: product catalog | 🔄 In progress |
+| 2 | Feature: product catalog | ✅ Done (2026-11-12) |
 | 3 | Feature: demo users + cart | ⬜ Pending |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
@@ -60,7 +61,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 ### Phase 2 tasks
 
 - [x] 1. `Category`/`Product`/`Inventory` models + first migration (`catalog`); re-runnable seed (4 categories, 10 products incl. edge cases); `GET /api/products`, `GET /api/products/:slug` (404 for unknown or inactive), in Swagger. API restructured into `src/modules/{health,product,payment}` (controller/service/module each)
-- [ ] 2. Minimal product list and detail pages in `apps/web` (prices formatted from cents for display only)
+- [x] 2. Product grid (`/`) and detail page (`/products/[slug]`, 404 for unknown or inactive) in `apps/web`; prices formatted from cents for display only; stock labels; `next build` passes with Cache Components
 
 ## Important commits
 
@@ -115,6 +116,10 @@ Full reasoning lives in plan §10. One line each:
 | D37 | 2026-11-12 | Seed runs with `tsx` (Prisma's documented runner); esbuild's install script denied in `allowBuilds` (pnpm already installs its platform binary) |
 | D38 | 2026-11-12 | Product images are placeholder PNG URLs (placehold.co) so Stripe Checkout can display them later via `product_data.images` |
 | D39 | 2026-11-12 | Feature modules live in `src/modules/<name>/` (singular) as `<name>.controller.ts` / `.service.ts` / `.module.ts`. Controllers handle HTTP only; services are the only place that calls Prisma or Stripe. Infrastructure (`prisma/`, `config/`, `generated/`) stays outside `modules/`. URLs stay plural (`/api/products`) |
+| D40 | 2026-11-12 | Server Components call NestJS directly at `API_URL`; only the browser uses the `/api` proxy. Catalog fetches are uncached (no `"use cache"`) so stock and prices are fresh |
+| D41 | 2026-11-12 | One root `app/loading.tsx` provides the Suspense boundary Cache Components requires for request-time data (pages become Partial Prerender: static shell + streamed data) |
+| D42 | 2026-11-12 | `formatMoney` (Intl, the currency's own decimals) is display-only; amounts stay integer minor units everywhere else |
+| D43 | 2026-11-12 | `next/image` with `remotePatterns` limited to `https://placehold.co/600x400/png` (query left open because the label is in `?text=`); plain Tailwind, no shadcn yet |
 
 ## Tool & library versions
 
@@ -139,6 +144,8 @@ Full reasoning lives in plan §10. One line each:
 - Resolved: Prisma couldn't reach `localhost:5435` because Windows resolves `localhost` to IPv6 `::1` first, while the container listens on IPv4 only. Fixed by using `127.0.0.1` in `DATABASE_URL`.
 - Note: `prisma init` (7.10) also writes AI-agent skill folders (`.claude/`, `.windsurf/`, `.agents/`, `skills-lock.json`). They were deleted as noise.
 - Resolved: the Stripe account is a US sandbox, so ACH Direct Debit can be tested in Phase 9b. Live mode will never be activated.
+- Note: with Cache Components, a product page that calls `notFound()` returns HTTP **200** with `<meta name="robots" content="noindex">`, because the static shell has already been streamed. The page content is the 404 page. Acceptable here.
+- Note: if `nest start --watch` ever leaves `apps/api/dist` deleted with nothing on :4000, restart `pnpm dev`.
 
 ## Learning progress
 
@@ -146,6 +153,7 @@ Details, gotchas and interview Q&A live in [docs/STRIPE_NOTES.md](docs/STRIPE_NO
 
 - **Phase 0:** sandbox vs live, the four key types, how a request authenticates, `Request-Id` / `Stripe-Version`, fail-fast config, Workbench logs.
 - **Phase 1:** the object chain of one payment (Customer → PaymentIntent → PaymentMethod → Charge → BalanceTransaction → Refund, with Events), fees and net, decline behavior, idempotency keys (replay and mismatch error), SDK pinning, retries and timeouts.
+- **Phase 2:** prices as integer minor units in our DB (the server's trusted source for `price_data`), zero-decimal currencies, Stripe's $0.50 USD minimum and amount limits, display-only formatting, soft-hiding products.
 
 ## Git workflow (quick reference): one PR per feature branch
 
@@ -167,4 +175,4 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 |---|---|---|---|
 | — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
-| — | `feature/p2-catalog` | 2 | In progress |
+| (link) | `feature/p2-catalog` | 2 | Open |
