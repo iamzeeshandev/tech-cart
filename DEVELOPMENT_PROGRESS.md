@@ -7,9 +7,9 @@ _Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 3 in progress. Task 1 (demo users + cart API) done; task 2 (user switcher, add to cart, cart page) next
+- **Current phase:** Phase 3 complete (PR into `dev` pending). Waiting for approval to start Phase 4
 - **Current branch:** `feature/p3-cart` (one branch and one PR for the phase, one commit per task)
-- **Next task:** Phase 3 task 2: web user switcher, add-to-cart button, cart page
+- **Next task:** Phase 4 ★ hosted Stripe Checkout: orders + stock reservation, Stripe Customer, Checkout Session, Pay button
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -31,7 +31,8 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - Store pages: http://localhost:3000 (product grid) and http://localhost:3000/products/orbit-mini (detail).
 - Cart (needs a demo user): `curl -H "x-demo-user-id: demo-sarah" http://localhost:3000/api/cart`. In Swagger, click **Authorize** and enter `demo-sarah`. Users: `GET /api/demo-users`.
 - Swagger UI: http://localhost:4000/api/docs (OpenAPI JSON at `/api/docs-json`). Use **Try it out → Execute** on any endpoint.
-- Inspect data: `pnpm --filter api db:studio`.
+- Inspect data: `pnpm --filter api db:studio --port 5555`, then open http://localhost:5555.
+- Store as a user: pick a demo user in the header dropdown (saved in the `demoUserId` cookie), add products, open http://localhost:3000/cart.
 - Run `pnpm dev` from the **repo root** to start both apps. Inside `apps/api` it starts only the API.
 
 ## Phases
@@ -41,7 +42,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | 0 | Foundation & Stripe account setup | ✅ Done (2026-11-11) |
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
 | 2 | Feature: product catalog | ✅ Done (2026-11-12) |
-| 3 | Feature: demo users + cart | 🔄 In progress |
+| 3 | Feature: demo users + cart | ✅ Done (2026-11-12) |
 | 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
 | 6 | Payment reliability & reconciliation | ⬜ Pending |
@@ -67,7 +68,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 ### Phase 3 tasks
 
 - [x] 1. `User` (+ `stripeCustomerId`, unused until Phase 4) and `CartItem` models + migration `demo_users_cart`; 3 seeded demo users; `DemoUserGuard` + `@CurrentUser()`; `GET /api/demo-users`; `GET /api/cart`, `POST /api/cart/items`, `PATCH`/`DELETE /api/cart/items/:itemId`; zod body validation; Swagger Authorize
-- [ ] 2. Web: demo-user switcher (cookie), add-to-cart button, cart page with quantity controls and display subtotal
+- [x] 2. Web: demo-user dropdown in the header (cookie), add-to-cart button on the product page, `/cart` page with −/+/remove and a display-only subtotal; `next build` passes
 
 ## Important commits
 
@@ -129,6 +130,9 @@ Full reasoning lives in plan §10. One line each:
 | D44 | 2026-11-12 | The cart is the user's `CartItem` rows (no `Cart` table); `@@unique([userId, productId])`; no prices stored in the cart |
 | D45 | 2026-11-12 | `DemoUserGuard` reads `x-demo-user-id`, loads the user (401 if missing or unknown) and `@CurrentUser()` exposes it, the same shape a real auth guard would have. Seeded ids are fixed (`demo-sarah`, `demo-james`, `demo-emily`); emails use public `@yopmail.com` inboxes |
 | D49 | 2026-11-12 | The user runs every migration and seed command (`migrate dev/reset/deploy`, `db:seed`) themselves; Claude provides each command with its purpose |
+| D50 | 2026-11-12 | Web identity: the header dropdown stores the demo user in a readable `demoUserId` cookie. Server Components read it with `cookies()` and send `x-demo-user-id`; browser cart calls send the same header through the `/api` proxy. (Real apps: an httpOnly session cookie that only the server reads.) |
+| D51 | 2026-11-12 | Cart changes are browser `fetch` calls to `/api/cart/...` followed by `router.refresh()` (visible in DevTools, the same shape as Phase 4's checkout POST); no Server Actions |
+| D52 | 2026-11-12 | A cookie for a user that no longer exists (API 401) makes the cart page ask the user to pick a demo user, instead of erroring |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |
@@ -166,6 +170,7 @@ Details, gotchas and interview Q&A live in [docs/STRIPE_NOTES.md](docs/STRIPE_NO
 - **Phase 0:** sandbox vs live, the four key types, how a request authenticates, `Request-Id` / `Stripe-Version`, fail-fast config, Workbench logs.
 - **Phase 1:** the object chain of one payment (Customer → PaymentIntent → PaymentMethod → Charge → BalanceTransaction → Refund, with Events), fees and net, decline behavior, idempotency keys (replay and mismatch error), SDK pinning, retries and timeouts.
 - **Phase 2:** prices as integer minor units in our DB (the server's trusted source for `price_data`), zero-decimal currencies, Stripe's $0.50 USD minimum and amount limits, display-only formatting, soft-hiding products.
+- **Phase 3:** the cart as untrusted input (no stored prices, zod validation, stripped fields), soft stock checks vs reservation, ownership-scoped queries (IDOR), one user → one future Stripe Customer (`stripeCustomerId @unique`).
 
 ## Git workflow (quick reference): one PR per feature branch
 
@@ -188,4 +193,4 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
 | [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
-| — | `feature/p3-cart` | 3 | In progress |
+| (link) | `feature/p3-cart` | 3 | Open |

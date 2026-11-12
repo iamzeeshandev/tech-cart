@@ -155,3 +155,34 @@ format.format(amount / 10 ** format.resolvedOptions().maximumFractionDigits) // 
 - **The page shows $1,299 and a user edits the request to $1. What gets charged?** $1,299. The server ignores client amounts and builds `unit_amount` from the DB at checkout.
 - **A cart totals $0.35. Where should it fail?** In our API, before calling Stripe: a clear 400 error, and no order or session that can never be paid. Stripe rejecting it is only the backstop.
 - **Why not delete discontinued products?** Orders and refunds point at them. `isActive: false` only hides them from the catalog.
+
+---
+
+## Phase 3 — Users and cart: untrusted input
+
+**Goal:** know who is buying (each user later maps to one Stripe Customer) and hold their cart without trusting anything the browser sends. No Stripe calls yet.
+
+**Sequence**
+1. The header dropdown saves the demo user in a cookie; every cart call sends `x-demo-user-id`, a stand-in for a session or JWT.
+2. `DemoUserGuard` loads the user (401 if missing or unknown); `@CurrentUser()` passes it to the controller.
+3. The cart is `CartItem(userId, productId, quantity)` rows. **No prices stored.**
+4. Add or update: zod validates (integer 1–10, unknown keys stripped) → product must be active → soft stock check (409).
+5. `GET /api/cart` returns lines and a subtotal from current DB prices: a **display estimate**.
+6. Next (Phase 4): checkout reads the cart rows, then re-reads prices and stock itself.
+
+**Why**
+- Everything from the browser (price, quantity, product id, even the user id here) can be edited in DevTools, so the server re-derives what matters.
+- `User.stripeCustomerId @unique` is ready, so one buyer maps to one Stripe Customer (Phase 4).
+
+**Gotchas**
+- A tampered `priceAmount` in the body is silently stripped; the cart total still uses the DB price.
+- The stock check at add-to-cart is **not a reservation**: two carts can both hold the last unit. Only checkout will reserve.
+- Scope by owner inside the query (`where: { id, userId }`), so another user's item id gives 404 (blocks IDOR).
+- Header-based demo identity is not auth: anyone can send any id. Production uses an httpOnly session cookie or a server-verified JWT.
+
+**Code:** `apps/api/src/modules/user/demo-user.guard.ts`, `apps/api/src/modules/cart/cart.service.ts`, `apps/web/src/lib/cart-client.ts`
+
+**Q&A**
+- **Why doesn't the cart store prices?** Prices change and the browser can lie. Checkout re-reads prices from the DB, so a stored price could only be stale or forged.
+- **Two users both have the last Orbit Mini in their carts. Who gets it?** The cart doesn't decide. It only gives early feedback, and the stock reservation at checkout decides.
+- **How do you stop a user changing another user's cart item?** Put the authenticated user into every query (`where: { id, userId }`) and return 404, which doesn't even confirm the item exists.
