@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CartItemControls } from "@/components/cart-item-controls";
+import { CheckoutButton } from "@/components/checkout-button";
 import { getCart, getCurrentUserId } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 
@@ -57,6 +58,7 @@ export default async function CartPage() {
               Subtotal: <span className="font-semibold">{formatMoney(cart.subtotal, cart.currency)}</span>
             </p>
             <p className="text-xs text-zinc-500">Estimate. The server recalculates the total at checkout.</p>
+            <CheckoutButton />
           </div>
         </>
       )}

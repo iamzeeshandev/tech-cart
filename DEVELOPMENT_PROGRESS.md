@@ -7,7 +7,7 @@ _Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 4 ★ in progress. Tasks 1–2 done. Task 2 (Stripe Customer + Checkout Session) tested; waiting for its commit
+- **Current phase:** Phase 4 ★ in progress. Tasks 1–3 done. Task 3 (web Checkout button, success and cancel pages) tested with a real sandbox payment; waiting for its commit, then the phase wrap-up
 - **Current branch:** `feature/p4-checkout` (one branch and one PR for the phase, one commit per task)
 - **Next task:** Phase 4 task 3: web Checkout button, success and cancel pages
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
@@ -74,7 +74,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 
 - [x] 1. `Order` / `OrderItem` / `Payment` + enums (migration `checkout_orders`, all Phase 4 fields); `OrderService.createFromCart` (one transaction: validate, claim the key, reserve stock, snapshot prices); `POST /api/checkout` with a required `Idempotency-Key`. Tested: 401/400 validation, empty cart, $0.35 < minimum, Sarah vs James race for the last Orbit Mini (one 201, one 409, the loser's Pixelon reservation rolled back), replay → 200 + `Idempotent-Replayed`, per-user key scope, 5 parallel same-key requests → one order, stock moved once (Postgres logged 4 unique-index collisions)
 - [x] 2. Stripe Customer per user + Checkout Session (`price_data` from snapshots, metadata, `expires_at`, Stripe idempotency key from the payment id); response gains `checkoutUrl`. Tested: retrying the Task 1 orders with < 30 min of reservation left → Stripe `invalid_request_error` on `expires_at` → 502, orders `CANCELLED`, all stock released; happy path → session matches our order in Stripe (`amount_total`, customer, `client_reference_id`, metadata, `expires_at` = `reservationExpiresAt`, `payment_intent: null`); replay → same `checkoutUrl`, no Stripe call; 5 parallel same-key requests for a user without a Customer → one order, one Customer, one session
-- [ ] 3. Web: Checkout button (redirect to Stripe), success and cancel pages; pay with test cards and observe the deliberate gap (Stripe paid, DB still `PENDING_PAYMENT`)
+- [x] 3. Web: Checkout button (redirect to Stripe), success and cancel pages; pay with test cards and observe the deliberate gap (Stripe paid, DB still `PENDING_PAYMENT`). Added `GET /api/checkout/sessions/:sessionId` and `GET /api/orders/:orderId` (owner-only). Tested: another user or a forged `session_id` → "couldn't find"; Sarah bought an Aero 14 (decline `0002`, then `4242`): Stripe shows the session `complete`/`paid`, PI `succeeded` (one PI, two Charges), fee 3797, net 126103, 7 events. Our DB still shows the order `PENDING_PAYMENT`, the payment `PENDING`, the stock reserved and the cart full
 
 ## Important commits
 
@@ -148,6 +148,7 @@ Full reasoning lives in plan §10. One line each:
 | D59 | 2026-11-12 | One Stripe Customer per user, created at their first checkout with idempotency key `customer:<userId>` and `metadata.userId`; saved only into an empty `stripeCustomerId` column, so concurrent checkouts can't overwrite each other |
 | D60 | 2026-11-12 | Checkout Session params come only from saved rows (item snapshots sorted by `productId`, `reservationExpiresAt`, ids, `WEB_URL`), so a retry sends an identical request under `checkout-session:<paymentId>` and Stripe returns the session it already made. `client_reference_id` = orderId; `metadata` {orderId, paymentId} on the session and, through `payment_intent_data`, on the PaymentIntent. No product images |
 | D61 | 2026-11-12 | Stripe failures while starting a session. 4xx except 409/429 is permanent: guarded `PENDING_PAYMENT → CANCELLED`, stock released, payment `FAILED`, response 502. Everything else (connection, 5xx, 409, 429, DB) has an unknown outcome: the order and stock are kept, the response is 503, and a retry with the same key resumes. A retry later than the 5 min buffer gets Stripe's "expires_at must be ≥ 30 min" → cancelled |
+| D62 | 2026-11-13 | Web checkout. The button keeps its `Idempotency-Key` only when the outcome is unknown (network error, 503), so the next click resumes; any clear answer means a new key next time. The success page shows our DB order by `session_id` (`GET /api/checkout/sessions/:id`; Phase 5 adds Stripe verification there). The cancel page offers "Resume payment" with the stored `checkoutUrl` (same session, no second order) |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |

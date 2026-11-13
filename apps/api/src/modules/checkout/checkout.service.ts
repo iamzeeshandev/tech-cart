@@ -5,11 +5,13 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma, type User } from '../../generated/prisma/client.js';
-import { OrderService } from '../order/order.service.js';
+import {
+  OrderService,
+  type OrderWithRelations,
+  toOrderResponse,
+} from '../order/order.service.js';
 import { isPermanentStripeError, PaymentService } from '../payment/payment.service.js';
 import { UserService } from '../user/user.service.js';
-
-type OrderWithRelations = NonNullable<Awaited<ReturnType<OrderService['findByIdempotencyKey']>>>;
 
 @Injectable()
 export class CheckoutService {
@@ -29,7 +31,11 @@ export class CheckoutService {
     if (order.status === 'PENDING_PAYMENT' && !payment.stripeCheckoutSessionId) {
       checkoutUrl = await this.startCheckoutSession(user, order, payment.id);
     }
-    return { order: toResponse(order, checkoutUrl), replayed };
+    return { order: toOrderResponse(order, checkoutUrl), replayed };
+  }
+
+  async getBySession(userId: string, sessionId: string) {
+    return toOrderResponse(await this.orderService.getByCheckoutSession(sessionId, userId));
   }
 
   private async findOrCreateOrder(userId: string, idempotencyKey: string) {
@@ -77,20 +83,4 @@ export class CheckoutService {
     await this.userService.saveStripeCustomerId(user.id, customerId);
     return customerId;
   }
-}
-
-function toResponse(order: OrderWithRelations, checkoutUrl: string | null) {
-  return {
-    orderId: order.id,
-    status: order.status,
-    totalAmount: order.totalAmount,
-    currency: order.currency,
-    reservationExpiresAt: order.reservationExpiresAt,
-    checkoutUrl,
-    items: order.items.map(({ productName, unitAmount, quantity }) => ({
-      productName,
-      unitAmount,
-      quantity,
-    })),
-  };
 }

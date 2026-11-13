@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 // Stripe needs a session's expires_at to be >= 30 min after creation; the extra 5 min
@@ -11,6 +17,27 @@ const CURRENCY = 'usd';
 // Fixed item order: a retried Stripe request must send identical line_items.
 const orderInclude = { items: { orderBy: { productId: 'asc' } }, payments: true } as const;
 
+export type OrderWithRelations = Prisma.OrderGetPayload<{ include: typeof orderInclude }>;
+
+export function toOrderResponse(
+  order: OrderWithRelations,
+  checkoutUrl = order.payments.at(0)?.checkoutUrl ?? null,
+) {
+  return {
+    orderId: order.id,
+    status: order.status,
+    totalAmount: order.totalAmount,
+    currency: order.currency,
+    reservationExpiresAt: order.reservationExpiresAt,
+    checkoutUrl,
+    items: order.items.map(({ productName, unitAmount, quantity }) => ({
+      productName,
+      unitAmount,
+      quantity,
+    })),
+  };
+}
+
 @Injectable()
 export class OrderService {
   constructor(private readonly prisma: PrismaService) {}
@@ -20,6 +47,24 @@ export class OrderService {
       where: { userId_idempotencyKey: { userId, idempotencyKey } },
       include: orderInclude,
     });
+  }
+
+  async getForUser(orderId: string, userId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId, userId },
+      include: orderInclude,
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
+  async getByCheckoutSession(sessionId: string, userId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { userId, payments: { some: { stripeCheckoutSessionId: sessionId } } },
+      include: orderInclude,
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
   }
 
   // One transaction: if any step throws, every stock reservation in it is rolled back.

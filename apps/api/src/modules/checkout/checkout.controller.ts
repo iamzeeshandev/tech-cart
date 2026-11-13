@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   Controller,
+  Get,
   Headers,
+  Param,
   Post,
   Res,
   UseGuards,
@@ -11,6 +13,7 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiHeader,
+  ApiNotFoundResponse,
   ApiOperation,
   ApiSecurity,
   ApiServiceUnavailableResponse,
@@ -64,5 +67,12 @@ export class CheckoutController {
       res.status(200).setHeader('Idempotent-Replayed', 'true');
     }
     return order;
+  }
+
+  @ApiOperation({ summary: 'Order behind a Checkout Session (for the success page)' })
+  @ApiNotFoundResponse({ description: 'No order with this session for this user' })
+  @Get('sessions/:sessionId')
+  getBySession(@CurrentUser() user: User, @Param('sessionId') sessionId: string) {
+    return this.checkoutService.getBySession(user.id, sessionId);
   }
 }
