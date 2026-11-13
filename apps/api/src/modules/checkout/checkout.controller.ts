@@ -7,11 +7,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadGatewayResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiHeader,
   ApiOperation,
   ApiSecurity,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -32,7 +34,9 @@ const idempotencyKeySchema = z.uuid();
 export class CheckoutController {
   constructor(private readonly checkoutService: CheckoutService) {}
 
-  @ApiOperation({ summary: 'Create an order from the cart and reserve its stock' })
+  @ApiOperation({
+    summary: 'Create an order from the cart, reserve its stock and start a Stripe Checkout Session',
+  })
   @ApiHeader({
     name: 'Idempotency-Key',
     required: true,
@@ -40,6 +44,10 @@ export class CheckoutController {
   })
   @ApiBadRequestResponse({ description: 'Bad Idempotency-Key, empty cart, or total below $0.50' })
   @ApiConflictResponse({ description: 'Not enough stock, or a product is no longer available' })
+  @ApiBadGatewayResponse({ description: 'Stripe rejected the session; the order is cancelled' })
+  @ApiServiceUnavailableResponse({
+    description: 'Stripe unreachable; the order is kept, retry with the same Idempotency-Key',
+  })
   @Post()
   async checkout(
     @CurrentUser() user: User,
@@ -51,9 +59,8 @@ export class CheckoutController {
       throw new BadRequestException('Idempotency-Key header must be a UUID');
     }
 
-    const { order, replayed } = await this.checkoutService.checkout(user.id, key.data);
+    const { order, replayed } = await this.checkoutService.checkout(user, key.data);
     if (replayed) {
-      // Same signal Stripe gives on its own idempotent replays.
       res.status(200).setHeader('Idempotent-Replayed', 'true');
     }
     return order;

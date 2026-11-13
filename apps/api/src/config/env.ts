@@ -9,6 +9,8 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z
     .string()
     .regex(/^(sk|rk)_test_\w+$/, 'must be a sandbox key (sk_test_... or rk_test_...)'),
+  // Where Stripe Checkout sends the customer back (success_url / cancel_url).
+  WEB_URL: z.url().default('http://localhost:3000'),
 });
 
 export type Env = z.infer<typeof envSchema>;

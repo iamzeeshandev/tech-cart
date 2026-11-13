@@ -8,7 +8,8 @@ export const CHECKOUT_TTL_MS = 35 * 60 * 1000;
 const MIN_ORDER_AMOUNT = 50;
 const CURRENCY = 'usd';
 
-const orderInclude = { items: true, payments: true } as const;
+// Fixed item order: a retried Stripe request must send identical line_items.
+const orderInclude = { items: { orderBy: { productId: 'asc' } }, payments: true } as const;
 
 @Injectable()
 export class OrderService {
@@ -69,7 +70,6 @@ export class OrderService {
       });
 
       for (const item of cart) {
-        // Check and decrement in one statement: concurrent checkouts can't both take the last unit.
         const { count } = await tx.inventory.updateMany({
           where: { productId: item.productId, quantityAvailable: { gte: item.quantity } },
           data: {
@@ -83,6 +83,39 @@ export class OrderService {
       }
 
       return order;
+    });
+  }
+
+  attachCheckoutSession(paymentId: string, sessionId: string, checkoutUrl: string | null) {
+    return this.prisma.payment.update({
+      where: { id: paymentId },
+      data: { stripeCheckoutSessionId: sessionId, checkoutUrl },
+    });
+  }
+
+  cancelPending(orderId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      // Guarded transition: stock is released once, and never for an order that moved on.
+      const { count } = await tx.order.updateMany({
+        where: { id: orderId, status: 'PENDING_PAYMENT' },
+        data: { status: 'CANCELLED' },
+      });
+      if (count === 0) return;
+
+      const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { productId: 'asc' } });
+      for (const item of items) {
+        await tx.inventory.update({
+          where: { productId: item.productId },
+          data: {
+            quantityAvailable: { increment: item.quantity },
+            quantityReserved: { decrement: item.quantity },
+          },
+        });
+      }
+      await tx.payment.updateMany({
+        where: { orderId, status: 'PENDING' },
+        data: { status: 'FAILED' },
+      });
     });
   }
 }

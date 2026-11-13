@@ -15,4 +15,11 @@ export class UserService {
   findById(id: string) {
     return this.prisma.user.findUnique({ where: { id } });
   }
+
+  saveStripeCustomerId(userId: string, stripeCustomerId: string) {
+    return this.prisma.user.updateMany({
+      where: { id: userId, stripeCustomerId: null },
+      data: { stripeCustomerId },
+    });
+  }
 }
