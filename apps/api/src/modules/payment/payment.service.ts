@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import type { Env } from '../../config/env.js';
@@ -23,12 +29,23 @@ export function isPermanentStripeError(error: unknown): boolean {
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly webUrl: string;
+  private readonly webhookSecret: string;
 
   constructor(
     @Inject(STRIPE_CLIENT) private readonly stripe: Stripe,
     config: ConfigService<Env, true>,
   ) {
     this.webUrl = config.get('WEB_URL', { infer: true });
+    this.webhookSecret = config.get('STRIPE_WEBHOOK_SECRET', { infer: true });
+  }
+
+  constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
+    try {
+      return this.stripe.webhooks.constructEvent(rawBody, signature, this.webhookSecret);
+    } catch (err) {
+      this.logger.warn(`Rejected webhook: ${(err as Error).message}`);
+      throw new BadRequestException('Invalid Stripe signature');
+    }
   }
 
   async checkStripe() {

@@ -7,6 +7,7 @@ import { HealthModule } from './modules/health/health.module.js';
 import { PaymentModule } from './modules/payment/payment.module.js';
 import { ProductModule } from './modules/product/product.module.js';
 import { UserModule } from './modules/user/user.module.js';
+import { WebhookModule } from './modules/webhook/webhook.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
@@ -19,6 +20,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     CartModule,
     CheckoutModule,
     PaymentModule,
+    WebhookModule,
   ],
 })
 export class AppModule {}

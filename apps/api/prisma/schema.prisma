@@ -67,15 +67,21 @@ model CartItem {
   @@unique([userId, productId])
 }
 
-// More values arrive with webhooks (PAID, EXPIRED, ...) in Phase 5.
 enum OrderStatus {
   PENDING_PAYMENT
+  PAYMENT_PROCESSING
+  PAID
+  PAYMENT_FAILED
+  EXPIRED
   CANCELLED
 }
 
 enum PaymentStatus {
   PENDING
+  PROCESSING
+  SUCCEEDED
   FAILED
+  EXPIRED
 }
 
 model Order {
@@ -89,6 +95,7 @@ model Order {
   idempotencyKey       String
   // Stock stays reserved until then; also sent to Stripe as the session's expires_at.
   reservationExpiresAt DateTime
+  paidAt               DateTime?
   items                OrderItem[]
   payments             Payment[]
   createdAt            DateTime    @default(now())
@@ -119,6 +126,34 @@ model Payment {
   currency                String
   stripeCheckoutSessionId String?       @unique
   checkoutUrl             String?
+  stripePaymentIntentId   String?       @unique
+  lastFailureCode         String?
+  lastFailureMessage      String?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
+}
+
+enum StripeEventStatus {
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// Every webhook event received, keyed by Stripe's evt_ id: a redelivery of a PROCESSED
+// or IGNORED event is skipped, a FAILED one is processed again.
+model StripeEvent {
+  id              String            @id
+  type            String
+  apiVersion      String?
+  livemode        Boolean
+  status          StripeEventStatus @default(PROCESSING)
+  attempts        Int               @default(1)
+  lastError       String?
+  payload         Json
+  stripeCreatedAt DateTime
+  receivedAt      DateTime          @default(now())
+  processedAt     DateTime?
+
+  @@index([type])
 }

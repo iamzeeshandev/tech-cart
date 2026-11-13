@@ -7,9 +7,9 @@ _Last updated: 2026-11-13_
 
 ## Current status
 
-- **Current phase:** Phase 4 ★ complete (2026-11-13). Waiting for the interview answers and the PR into `dev`
-- **Current branch:** `feature/p4-checkout` (one branch and one PR for the phase, one commit per task)
-- **Next task:** Phase 5 ★ webhooks & payment confirmation (after approval)
+- **Current phase:** Phase 5 ★ in progress. Task 1 (webhook endpoint: raw body, signature check, `StripeEvent` log) done and tested; waiting for its commit
+- **Current branch:** `feature/p5-webhooks` (one branch and one PR for the phase, one commit per task)
+- **Next task:** Phase 5 task 2: event handlers + one idempotent fulfill function
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -44,7 +44,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | 2 | Feature: product catalog | ✅ Done (2026-11-12) |
 | 3 | Feature: demo users + cart | ✅ Done (2026-11-12) |
 | 4 | Feature: hosted Stripe Checkout | ✅ Done (2026-11-13) |
-| 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
+| 5 | Feature: webhooks & payment confirmation | 🔄 In progress — 🏁 Milestone 1 (`v0.1.0`) |
 | 6 | Payment reliability & reconciliation | ⬜ Pending |
 | 7 | Refunds & order management | ⬜ Pending — 🏁 Milestone 2 (`v0.2.0`) |
 | 8 | PaymentIntents + Payment Element comparison | ⬜ Pending |
@@ -75,6 +75,12 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - [x] 1. `Order` / `OrderItem` / `Payment` + enums (migration `checkout_orders`, all Phase 4 fields); `OrderService.createFromCart` (one transaction: validate, claim the key, reserve stock, snapshot prices); `POST /api/checkout` with a required `Idempotency-Key`. Tested: 401/400 validation, empty cart, $0.35 < minimum, Sarah vs James race for the last Orbit Mini (one 201, one 409, the loser's Pixelon reservation rolled back), replay → 200 + `Idempotent-Replayed`, per-user key scope, 5 parallel same-key requests → one order, stock moved once (Postgres logged 4 unique-index collisions)
 - [x] 2. Stripe Customer per user + Checkout Session (`price_data` from snapshots, metadata, `expires_at`, Stripe idempotency key from the payment id); response gains `checkoutUrl`. Tested: retrying the Task 1 orders with < 30 min of reservation left → Stripe `invalid_request_error` on `expires_at` → 502, orders `CANCELLED`, all stock released; happy path → session matches our order in Stripe (`amount_total`, customer, `client_reference_id`, metadata, `expires_at` = `reservationExpiresAt`, `payment_intent: null`); replay → same `checkoutUrl`, no Stripe call; 5 parallel same-key requests for a user without a Customer → one order, one Customer, one session
 - [x] 3. Web: Checkout button (redirect to Stripe), success and cancel pages; pay with test cards and observe the deliberate gap (Stripe paid, DB still `PENDING_PAYMENT`). Added `GET /api/checkout/sessions/:sessionId` and `GET /api/orders/:orderId` (owner-only). Tested: another user or a forged `session_id` → "couldn't find"; Sarah bought an Aero 14 (decline `0002`, then `4242`): Stripe shows the session `complete`/`paid`, PI `succeeded` (one PI, two Charges), fee 3797, net 126103, 7 events. Our DB still shows the order `PENDING_PAYMENT`, the payment `PENDING`, the stock reserved and the cart full
+
+### Phase 5 tasks
+
+- [x] 1. Migration `webhooks` (all Phase 5 schema: new order/payment statuses, `Order.paidAt`, `Payment.stripePaymentIntentId` + last failure, `StripeEvent`); `rawBody: true`; `POST /api/webhooks/stripe` verifies the signature and logs every event (dedup by `evt_` id; types we don't handle → IGNORED + 200; handler error → FAILED + 500). Tested: real events through `stripe listen` → verified, logged IGNORED, 200 in ~40 ms (and delivered out of order: `charge.succeeded` before `payment_intent.created`); missing, forged, wrong-secret, tampered-amount, 10-minute-old and re-serialized bodies → 400; sequential redelivery → DUPLICATE; **20 simultaneous copies all passed the dedup check** (`attempts = 20`), so handlers must be guarded
+- [ ] 2. Handlers + one idempotent `fulfillCheckoutSession`: `checkout.session.completed` (paid → PAID, stock sold, ordered items leave the cart; unpaid → PAYMENT_PROCESSING), `async_payment_succeeded/failed`, `expired` (release stock), `payment_intent.payment_failed` (record the failure). The success-page endpoint calls the same fulfill
+- [ ] 3. Web: success page shows the confirmed status; order list + order detail
 
 ## Important commits
 
@@ -149,6 +155,9 @@ Full reasoning lives in plan §10. One line each:
 | D60 | 2026-11-12 | Checkout Session params come only from saved rows (item snapshots sorted by `productId`, `reservationExpiresAt`, ids, `WEB_URL`), so a retry sends an identical request under `checkout-session:<paymentId>` and Stripe returns the session it already made. `client_reference_id` = orderId; `metadata` {orderId, paymentId} on the session and, through `payment_intent_data`, on the PaymentIntent. No product images |
 | D61 | 2026-11-12 | Stripe failures while starting a session. 4xx except 409/429 is permanent: guarded `PENDING_PAYMENT → CANCELLED`, stock released, payment `FAILED`, response 502. Everything else (connection, 5xx, 409, 429, DB) has an unknown outcome: the order and stock are kept, the response is 503, and a retry with the same key resumes. A retry later than the 5 min buffer gets Stripe's "expires_at must be ≥ 30 min" → cancelled |
 | D62 | 2026-11-13 | Web checkout. The button keeps its `Idempotency-Key` only when the outcome is unknown (network error, 503), so the next click resumes; any clear answer means a new key next time. The success page shows our DB order by `session_id` (`GET /api/checkout/sessions/:id`; Phase 5 adds Stripe verification there). The cancel page offers "Resume payment" with the stored `checkoutUrl` (same session, no second order) |
+| D63 | 2026-11-13 | Webhooks use snapshot events verified with `stripe.webhooks.constructEvent(rawBody, Stripe-Signature, whsec)` (HMAC-SHA256 over `timestamp.body`, 300 s tolerance against replays); Nest `rawBody: true`. Hand-written instead of `@nestjs/webhooks` (a full inbox/outbox package with its own schemas): verification, dedup and exactly-once handling are the lesson |
+| D64 | 2026-11-13 | `StripeEvent` log keyed by `evt_` id. A redelivery of a PROCESSED or IGNORED event → 200, skipped; a FAILED or stuck PROCESSING one is processed again; types we don't handle → IGNORED + 200 (no pointless retries); a handler error → FAILED + 500, so Stripe retries. The log gives dedup and audit; safety under *concurrent* duplicates comes from guarded state transitions in the handlers (task 2) |
+| D65 | 2026-11-13 | Local delivery: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. Its signing secret (`stripe listen --print-secret`, stable per CLI login) is `STRIPE_WEBHOOK_SECRET`, validated at boot like the API key |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |
@@ -179,6 +188,8 @@ Full reasoning lives in plan §10. One line each:
 - Note: with Cache Components, a product page that calls `notFound()` returns HTTP **200** with `<meta name="robots" content="noindex">`, because the static shell has already been streamed. The page content is the 404 page. Acceptable here.
 - Note: if `nest start --watch` ever leaves `apps/api/dist` deleted with nothing on :4000, restart `pnpm dev`.
 - Known gaps until Phase 5, by design: a paid order stays `PENDING_PAYMENT`, the cart isn't cleared (a second Checkout can pay the same cart again), and an abandoned or expired session keeps its stock reserved. Test orders from 12–13 Nov still hold stock (Orbit Mini, cable and ties, one charger, one Aero 14).
+- Note: Stripe CLI 1.55 `stripe listen` exits unless you pass `--events <list>`, `--all-snapshot` or `--all-thin`. We use `stripe listen --all-snapshot --forward-to localhost:4000/api/webhooks/stripe`.
+- Note: `stripe trigger payment_intent.succeeded` fails on API `2026-10-28.endive` (its fixture sends `payment_method_types`, which is no longer supported). Create events with real API calls instead, e.g. `stripe payment_intents create ... --confirm=true`.
 - Note: in Git Bash, `stripe post /v1/...` gets its path rewritten into a Windows path. Prefix it with `MSYS_NO_PATHCONV=1` (PowerShell is unaffected).
 
 ## Learning progress
@@ -213,4 +224,5 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
 | [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
 | [#3](https://github.com/iamzeeshandev/tech-cart/pull/3) | `feature/p3-cart` | 3 | Merged |
-| — | `feature/p4-checkout` | 4 | Ready for PR |
+| [#4](https://github.com/iamzeeshandev/tech-cart/pull/4), [#5](https://github.com/iamzeeshandev/tech-cart/pull/5) | `feature/p4-checkout` | 4 | Merged |
+| — | `feature/p5-webhooks` | 5 | In progress |
