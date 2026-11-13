@@ -108,6 +108,15 @@ export class PaymentService {
     }
   }
 
+  async retrieveCheckoutSession(sessionId: string) {
+    try {
+      return await this.stripe.checkout.sessions.retrieve(sessionId);
+    } catch (err) {
+      this.logStripeError(err);
+      throw err;
+    }
+  }
+
   private logStripeError(err: unknown) {
     if (err instanceof Stripe.errors.StripeError) {
       this.logger.error(`${err.type} ${err.requestId ?? ''}: ${err.message}`);

@@ -7,9 +7,9 @@ _Last updated: 2026-11-13_
 
 ## Current status
 
-- **Current phase:** Phase 5 ★ in progress. Task 1 (webhook endpoint: raw body, signature check, `StripeEvent` log) done and tested; waiting for its commit
+- **Current phase:** Phase 5 ★ in progress. Tasks 1–2 done; task 2 (event handlers + one idempotent fulfill) tested, waiting for its commit and a live browser purchase
 - **Current branch:** `feature/p5-webhooks` (one branch and one PR for the phase, one commit per task)
-- **Next task:** Phase 5 task 2: event handlers + one idempotent fulfill function
+- **Next task:** Phase 5 task 3: web order list + order detail
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -79,7 +79,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 ### Phase 5 tasks
 
 - [x] 1. Migration `webhooks` (all Phase 5 schema: new order/payment statuses, `Order.paidAt`, `Payment.stripePaymentIntentId` + last failure, `StripeEvent`); `rawBody: true`; `POST /api/webhooks/stripe` verifies the signature and logs every event (dedup by `evt_` id; types we don't handle → IGNORED + 200; handler error → FAILED + 500). Tested: real events through `stripe listen` → verified, logged IGNORED, 200 in ~40 ms (and delivered out of order: `charge.succeeded` before `payment_intent.created`); missing, forged, wrong-secret, tampered-amount, 10-minute-old and re-serialized bodies → 400; sequential redelivery → DUPLICATE; **20 simultaneous copies all passed the dedup check** (`attempts = 20`), so handlers must be guarded
-- [ ] 2. Handlers + one idempotent `fulfillCheckoutSession`: `checkout.session.completed` (paid → PAID, stock sold, ordered items leave the cart; unpaid → PAYMENT_PROCESSING), `async_payment_succeeded/failed`, `expired` (release stock), `payment_intent.payment_failed` (record the failure). The success-page endpoint calls the same fulfill
+- [x] 2. Handlers + one idempotent `fulfillCheckoutSession`: `checkout.session.completed` (paid → PAID, stock sold, ordered items leave the cart; unpaid → PAYMENT_PROCESSING), `async_payment_succeeded/failed`, `expired` (release stock), `payment_intent.payment_failed` (record the failure). The success-page endpoint calls the same fulfill. Tested: the real Aero 14 `checkout.session.completed` delivered **20 times concurrently** → PAID once, reservation 1 → 0, cart emptied, PI id saved; 12 Nov `checkout.session.expired` events redelivered with `stripe events resend` (20 h late) → both orders EXPIRED, all stock released (0 reserved store-wide); the old decline redelivered after success → no change; a session that isn't ours → IGNORED, no Stripe call; live `checkout.sessions.expire` on a new James checkout → EXPIRED, charger back, cart kept
 - [ ] 3. Web: success page shows the confirmed status; order list + order detail
 
 ## Important commits
@@ -158,6 +158,9 @@ Full reasoning lives in plan §10. One line each:
 | D63 | 2026-11-13 | Webhooks use snapshot events verified with `stripe.webhooks.constructEvent(rawBody, Stripe-Signature, whsec)` (HMAC-SHA256 over `timestamp.body`, 300 s tolerance against replays); Nest `rawBody: true`. Hand-written instead of `@nestjs/webhooks` (a full inbox/outbox package with its own schemas): verification, dedup and exactly-once handling are the lesson |
 | D64 | 2026-11-13 | `StripeEvent` log keyed by `evt_` id. A redelivery of a PROCESSED or IGNORED event → 200, skipped; a FAILED or stuck PROCESSING one is processed again; types we don't handle → IGNORED + 200 (no pointless retries); a handler error → FAILED + 500, so Stripe retries. The log gives dedup and audit; safety under *concurrent* duplicates comes from guarded state transitions in the handlers (task 2) |
 | D65 | 2026-11-13 | Local delivery: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. Its signing secret (`stripe listen --print-secret`, stable per CLI login) is `STRIPE_WEBHOOK_SECRET`, validated at boot like the API key |
+| D66 | 2026-11-13 | One `fulfillCheckoutSession(sessionId)`, safe to run repeatedly and concurrently. It looks up our payment by session id first (a foreign session → IGNORED, no Stripe call), skips a payment already `SUCCEEDED`, then **retrieves the session** (current state, not the event snapshot) and checks amount and currency (mismatch → throws → event FAILED, never PAID). `paid` → markPaid; `complete` but unpaid (delayed method) → markProcessing. Used by `checkout.session.completed`, `async_payment_succeeded`, and the success page (best effort, only while the order is pending) |
+| D67 | 2026-11-13 | Guarded transitions: each starts with `updateMany WHERE status IN (...)` inside a transaction. The payment row guards fulfillment and the order row guards release, so a concurrent duplicate waits on the row lock, then matches 0 rows. markPaid: payment SUCCEEDED + PI id, order PAID + `paidAt`, reserved stock → sold, the ordered quantities leave the cart (later additions stay). Paid but the order is already closed → throw (needs a refund, Phase 7). `expired` → EXPIRED and `async_payment_failed` → PAYMENT_FAILED, both release stock and keep the cart |
+| D68 | 2026-11-13 | `payment_intent.payment_failed` records the decline code and message on a PENDING payment only, so a late delivery after success changes nothing. `payment_intent.succeeded` and other types are IGNORED: fulfillment reads the session |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |

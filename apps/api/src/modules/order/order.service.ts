@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '../../generated/prisma/client.js';
+import type { OrderStatus, PaymentStatus, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 // Stripe needs a session's expires_at to be >= 30 min after creation; the extra 5 min
@@ -138,14 +138,102 @@ export class OrderService {
     });
   }
 
-  cancelPending(orderId: string) {
+  findPaymentBySession(sessionId: string) {
+    return this.prisma.payment.findUnique({ where: { stripeCheckoutSessionId: sessionId } });
+  }
+
+  // Every transition below starts with a guarded UPDATE (WHERE status IN ...). When the same
+  // event is handled twice at once, the second UPDATE waits for the first to commit, then
+  // matches 0 rows and changes nothing.
+  markPaid(paymentId: string, paymentIntentId: string | null) {
     return this.prisma.$transaction(async (tx) => {
-      // Guarded transition: stock is released once, and never for an order that moved on.
-      const { count } = await tx.order.updateMany({
-        where: { id: orderId, status: 'PENDING_PAYMENT' },
-        data: { status: 'CANCELLED' },
+      const { count } = await tx.payment.updateMany({
+        where: { id: paymentId, status: { in: ['PENDING', 'PROCESSING'] } },
+        data: { status: 'SUCCEEDED', stripePaymentIntentId: paymentIntentId },
       });
-      if (count === 0) return;
+      if (count === 0) return false;
+
+      const { orderId } = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+      const moved = await tx.order.updateMany({
+        where: { id: orderId, status: { in: ['PENDING_PAYMENT', 'PAYMENT_PROCESSING'] } },
+        data: { status: 'PAID', paidAt: new Date() },
+      });
+      if (moved.count === 0) {
+        // Stripe took the money for an order we already closed: needs a human and a refund.
+        throw new Error(`Order ${orderId} was paid but is no longer awaiting payment`);
+      }
+
+      const order = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: { items: { orderBy: { productId: 'asc' } } },
+      });
+      for (const item of order.items) {
+        await tx.inventory.update({
+          where: { productId: item.productId },
+          data: { quantityReserved: { decrement: item.quantity } },
+        });
+        // Remove only what was bought: items added to the cart while paying stay.
+        await tx.cartItem.deleteMany({
+          where: { userId: order.userId, productId: item.productId, quantity: { lte: item.quantity } },
+        });
+        await tx.cartItem.updateMany({
+          where: { userId: order.userId, productId: item.productId },
+          data: { quantity: { decrement: item.quantity } },
+        });
+      }
+      return true;
+    });
+  }
+
+  // Delayed payment methods (e.g. bank debits): Checkout is done but the money isn't yet.
+  markProcessing(paymentId: string, paymentIntentId: string | null) {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { id: paymentId, status: 'PENDING' },
+        data: { status: 'PROCESSING', stripePaymentIntentId: paymentIntentId },
+      });
+      if (count === 0) return false;
+
+      const { orderId } = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+      await tx.order.updateMany({
+        where: { id: orderId, status: 'PENDING_PAYMENT' },
+        data: { status: 'PAYMENT_PROCESSING' },
+      });
+      return true;
+    });
+  }
+
+  recordPaymentFailure(
+    paymentId: string,
+    paymentIntentId: string,
+    code: string | null,
+    message: string | null,
+  ) {
+    return this.prisma.payment.updateMany({
+      where: { id: paymentId, status: 'PENDING' },
+      data: { stripePaymentIntentId: paymentIntentId, lastFailureCode: code, lastFailureMessage: message },
+    });
+  }
+
+  cancelPending(orderId: string) {
+    return this.release(orderId, ['PENDING_PAYMENT'], 'CANCELLED', 'FAILED');
+  }
+
+  expire(orderId: string) {
+    return this.release(orderId, ['PENDING_PAYMENT'], 'EXPIRED', 'EXPIRED');
+  }
+
+  failAsyncPayment(orderId: string) {
+    return this.release(orderId, ['PENDING_PAYMENT', 'PAYMENT_PROCESSING'], 'PAYMENT_FAILED', 'FAILED');
+  }
+
+  private release(orderId: string, from: OrderStatus[], to: OrderStatus, paymentTo: PaymentStatus) {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({
+        where: { id: orderId, status: { in: from } },
+        data: { status: to },
+      });
+      if (count === 0) return false;
 
       const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { productId: 'asc' } });
       for (const item of items) {
@@ -158,9 +246,10 @@ export class OrderService {
         });
       }
       await tx.payment.updateMany({
-        where: { orderId, status: 'PENDING' },
-        data: { status: 'FAILED' },
+        where: { orderId, status: { in: ['PENDING', 'PROCESSING'] } },
+        data: { status: paymentTo },
       });
+      return true;
     });
   }
 }

@@ -9,5 +9,6 @@ import { CheckoutService } from './checkout.service.js';
   imports: [UserModule, OrderModule, PaymentModule],
   controllers: [CheckoutController],
   providers: [CheckoutService],
+  exports: [CheckoutService],
 })
 export class CheckoutModule {}
