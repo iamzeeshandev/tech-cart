@@ -18,9 +18,10 @@ export default async function Home() {
                 <Image
                   src={product.imageUrl}
                   alt={product.name}
-                  width={600}
-                  height={400}
-                  className="rounded"
+                  width={1200}
+                  height={800}
+                  sizes="(min-width: 1024px) 288px, (min-width: 640px) 45vw, 90vw"
+                  className="aspect-[3/2] rounded object-cover"
                 />
               )}
               <p className="mt-3 text-xs uppercase text-zinc-500">{product.category.name}</p>

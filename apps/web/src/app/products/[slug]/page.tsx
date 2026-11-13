@@ -21,9 +21,11 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
           <Image
             src={product.imageUrl}
             alt={product.name}
-            width={600}
-            height={400}
-            className="rounded-lg"
+            width={1200}
+            height={800}
+            sizes="(min-width: 1024px) 480px, (min-width: 768px) 45vw, 100vw"
+            preload
+            className="aspect-[3/2] rounded-lg object-cover"
           />
         )}
         <div>

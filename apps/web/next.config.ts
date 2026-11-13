@@ -10,9 +10,6 @@ const nextConfig: NextConfig = {
   logging: {
     fetches: { fullUrl: true },
   },
-  images: {
-    remotePatterns: [{ protocol: "https", hostname: "placehold.co", pathname: "/600x400/png" }],
-  },
   turbopack: {
     rules: {
       "*.css": {

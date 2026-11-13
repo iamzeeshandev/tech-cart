@@ -35,7 +35,8 @@ export default async function CartPage() {
                     alt={item.product.name}
                     width={96}
                     height={64}
-                    className="rounded"
+                    sizes="96px"
+                    className="aspect-[3/2] rounded object-cover"
                   />
                 )}
                 <div className="flex-1">
