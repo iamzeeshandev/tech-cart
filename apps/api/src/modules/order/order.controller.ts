@@ -19,10 +19,19 @@ import { OrderService, toOrderResponse } from './order.service.js';
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
-  @ApiOperation({ summary: "Get one of the current user's orders" })
+  @ApiOperation({ summary: "List the current user's orders, newest first" })
+  @Get()
+  async findAll(@CurrentUser() user: User) {
+    const orders = await this.orderService.listForUser(user.id);
+    return orders.map((order) => toOrderResponse(order));
+  }
+
+  @ApiOperation({ summary: "Get one of the current user's orders, with its Stripe event timeline" })
   @ApiNotFoundResponse({ description: 'No such order for this user' })
   @Get(':orderId')
   async findOne(@CurrentUser() user: User, @Param('orderId') orderId: string) {
-    return toOrderResponse(await this.orderService.getForUser(orderId, user.id));
+    const order = await this.orderService.getForUser(orderId, user.id);
+    const events = await this.orderService.findStripeEvents(order.id);
+    return { ...toOrderResponse(order), events };
   }
 }

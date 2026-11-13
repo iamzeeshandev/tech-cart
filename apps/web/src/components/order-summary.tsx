@@ -1,3 +1,4 @@
+import { OrderStatus } from "@/components/order-status";
 import type { Order } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 
@@ -5,7 +6,7 @@ export function OrderSummary({ order }: { order: Order }) {
   return (
     <div className="mt-6 max-w-md">
       <p className="text-sm">
-        Status: <span className="font-mono font-semibold">{order.status}</span>
+        Status: <OrderStatus status={order.status} />
       </p>
       <p className="text-xs text-zinc-500">Order {order.orderId}</p>
       <ul className="mt-3 divide-y divide-zinc-500/30 border-y border-zinc-500/30 text-sm">

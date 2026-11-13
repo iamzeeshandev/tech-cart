@@ -37,13 +37,15 @@ Revision sheet: the cheat sheet first, then each phase in build order. Update ru
 
 **Checkout Session statuses:** `status` `open` → `complete` | `expired` · `payment_status` `unpaid` | `paid` | `no_payment_required`. A decline keeps it `open`.
 
-**Events seen so far:** `payment_intent.created/succeeded/payment_failed` · `charge.succeeded/failed/updated/refunded` · `refund.created/updated` (`charge.refund.updated` is deprecated) · `checkout.session.completed`. Creating a Checkout Session emits **no** event.
+**Events seen so far:** `payment_intent.created/succeeded/payment_failed` · `charge.succeeded/failed/updated/refunded` · `refund.created/updated` (`charge.refund.updated` is deprecated) · `checkout.session.completed/expired` (+ `async_payment_succeeded/failed` for delayed methods). Creating a Checkout Session emits **no** event. One card payment through Checkout = 7 events; only `checkout.session.completed` (and a decline's `payment_intent.payment_failed`) need handling.
+
+**Webhook delivery:** `Stripe-Signature: t=<unix>,v1=<HMAC-SHA256(whsec, "t.rawBody")>` · verify over the **raw bytes**, reject `t` older than 300 s · at-least-once, **no order guarantee**, duplicates and concurrent copies possible · non-2xx = retry later (sandbox: a few hours; live: up to 3 days) · events stay listable for 30 days, so missed ones can be resent.
 
 **Stripe error → action:** 4xx except 409/429 = Stripe rejected the request, so sending it again can't help (fix it or give up) · 409 (same idempotency key still in progress), 429, 5xx, network error/timeout = outcome unknown, so retry with the **same** idempotency key.
 
 **Test cards:** `4242 4242 4242 4242` success · `4000 0000 0000 0002` generic decline · `4000 0000 0000 9995` insufficient funds · more as we use them.
 
-**CLI:** `stripe login` · `stripe <resource> create|retrieve|list` (`-d key=val`, `-e` expand, `-i` idempotency key) · `stripe checkout sessions retrieve cs_…` · `stripe charges list --payment-intent pi_…` · `stripe listen --forward-to <url>` · `stripe trigger <event>` · `stripe events resend <evt>` · `stripe logs tail`. In Git Bash, prefix raw paths: `MSYS_NO_PATHCONV=1 stripe get /v1/events`.
+**CLI:** `stripe login` · `stripe <resource> create|retrieve|list` (`-d key=val`, `-e` expand, `-i` idempotency key) · `stripe checkout sessions retrieve|expire cs_…` · `stripe charges list --payment-intent pi_…` · `stripe listen --all-snapshot --forward-to <url>` (CLI 1.55 requires `--events`, `--all-snapshot` or `--all-thin`; `--print-secret` prints its `whsec_`) · `stripe events resend evt_… --confirm` (reaches `stripe listen` too) · `stripe trigger <event>` (the `payment_intent` fixture fails on `2026-10-28.endive`) · `stripe logs tail`. In Git Bash, prefix raw paths: `MSYS_NO_PATHCONV=1 stripe get /v1/events`.
 
 ---
 
@@ -243,3 +245,51 @@ tx.inventory.updateMany({ where: { productId, quantityAvailable: { gte: qty } },
 - **Why can't the success redirect mark the order paid?** Anyone can open that URL with any `session_id`, and the redirect may never happen (closed tab). Only a verified webhook or a server-side session retrieve is proof.
 - **What happens to stock if the customer never comes back?** It stays reserved until the session's `expires_at`. Stripe then emits `checkout.session.expired`, and the handler (Phase 5) releases it. Without that handler it stays reserved forever, which we saw.
 - **`client_reference_id` or `metadata`: which do you use?** Both carry our ids. `client_reference_id` is a single reconciliation id on the session; `metadata` (plus `payment_intent_data.metadata`) reaches the PaymentIntent and Charge, so `payment_intent.*` and `charge.*` events map back to the order.
+
+---
+
+## Phase 5 — Webhooks: Stripe tells our server, exactly once
+
+**Goal:** orders become PAID, EXPIRED or FAILED from Stripe's server-to-server events, correctly under duplicate, concurrent and out-of-order delivery.
+
+**Sequence**
+1. Stripe creates an event (`evt_`) per change and POSTs it to our endpoint (locally through `stripe listen --all-snapshot --forward-to localhost:4000/api/webhooks/stripe`).
+2. Nest `rawBody: true` keeps the exact bytes; `stripe.webhooks.constructEvent(rawBody, Stripe-Signature, whsec)` checks the HMAC and the 300 s window → 400 if not.
+3. `StripeEvent` log by `evt_` id: already PROCESSED/IGNORED → 200 `DUPLICATE`; otherwise upsert PROCESSING (`attempts`+1).
+4. Dispatch: `completed` / `async_payment_succeeded` → fulfill · `expired` → EXPIRED, stock released · `async_payment_failed` → PAYMENT_FAILED, stock released · `payment_intent.payment_failed` → decline recorded · any other type → IGNORED, 200.
+5. `fulfillCheckoutSession(cs)`: our payment? → already SUCCEEDED? → **retrieve the session** → amount + currency match? → `paid` → markPaid; `complete` but unpaid → PAYMENT_PROCESSING.
+6. markPaid, one transaction: payment PENDING → SUCCEEDED (**the guard**), order → PAID + `paidAt`, reserved stock → sold, ordered quantities leave the cart.
+7. Handler throws → event FAILED + 500 → Stripe retries. Success → PROCESSED + 200.
+8. The success page runs the same fulfill (best effort), so the customer sees PAID even when the webhook is late.
+
+**Why**
+- **Webhooks are required:** the customer may never reach the success page, and delayed methods settle days later.
+- **Raw body:** the HMAC covers bytes. Parsing and re-stringifying changes them, so a valid event fails (proved: re-serialized JSON → 400).
+- **300 s window:** a captured request can't be replayed later. Stripe signs every *delivery* fresh, so an event resent 20 h later still verifies.
+- **Retrieve, don't trust the payload:** the event body is a snapshot that may be stale or out of order. Retrieving gives the current state, and the success page (which only has the id) can share the function.
+- **200 for types we don't handle:** a non-2xx means "retry", so a 500 would waste Stripe's retries on events we'll never act on.
+- **Log vs guards:** the log dedups sequential redeliveries and gives an audit trail. Only the guarded `UPDATE … WHERE status IN (…)` makes concurrent copies safe.
+
+**Gotchas** (each one seen in this phase)
+- **20 simultaneous copies** of one event all passed the log check (`attempts = 20`). The guard alone kept the laptop from being sold 20 times: reserved went 1 → 0, not −19.
+- Delivery order: `charge.succeeded` arrived before `payment_intent.created`.
+- An old decline redelivered after success must not mark the payment failed: only touch a `PENDING` payment.
+- Events for sessions we never created (`stripe trigger`, other apps on the account) → IGNORED, with no Stripe call.
+- Paid but our order already closed → throw (needs a refund, Phase 7). Amount mismatch → throw, never PAID.
+- Endpoint down = events missed (our 12 Nov expiries). Stripe keeps them: retries, then `stripe events resend` (or reconciliation, Phase 6) catches up.
+
+**Code:** `apps/api/src/main.ts` (`rawBody`), `apps/api/src/modules/webhook/` (endpoint, log, dispatch), `apps/api/src/modules/checkout/checkout.service.ts` (`fulfillCheckoutSession`), `apps/api/src/modules/order/order.service.ts` (guarded transitions), `apps/web/src/app/orders/`
+```ts
+const { count } = await tx.payment.updateMany({ where: { id, status: { in: ['PENDING', 'PROCESSING'] } }, data: { status: 'SUCCEEDED' } });
+if (count === 0) return false; // another copy already fulfilled this payment
+```
+
+**Observed (Emily, 13 Nov):** decline `0002`, then `4242` → 7 events: `payment_intent.created`, `charge.failed`, `payment_intent.payment_failed` (PROCESSED: decline saved), `payment_intent.succeeded`, `charge.succeeded`, `checkout.session.completed` (PROCESSED: PAID), `charge.updated`. 5 of the 7 are IGNORED.
+
+**Q&A**
+- **Why must the signature be checked on the raw body?** The HMAC covers the exact bytes Stripe sent. Any JSON parse and re-stringify changes whitespace or ordering, so a genuine event would fail.
+- **How do you make webhook handling idempotent?** Two layers: an event log keyed by `evt_` id skips redeliveries already handled, and every state change is a guarded update (`WHERE status = expected`) in a transaction, so even concurrent copies apply it once.
+- **What if events arrive out of order?** Don't trust event order or payload freshness. Retrieve the object's current state, and only allow forward transitions (a late decline can't undo a success).
+- **Webhook or success page: which is the source of truth?** The webhook: it reaches us even if the customer closes the tab. The success page runs the same idempotent fulfill only so the customer sees the result immediately.
+- **What status do you return?** 400 for a bad signature, 200 for success, duplicates and types you don't handle, and 500 only for failures a retry could fix.
+- **Your endpoint was down for an hour. What happens?** Stripe retries with backoff (up to 3 days in live mode), and events stay listable for 30 days. Recover by resending them or reconciling against the API; idempotent handlers make the replays safe.

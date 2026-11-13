@@ -19,9 +19,21 @@ export type Order = {
   status: string;
   totalAmount: number;
   currency: string;
+  createdAt: string;
+  paidAt: string | null;
   reservationExpiresAt: string;
   checkoutUrl: string | null;
+  payment: {
+    status: string;
+    stripePaymentIntentId: string | null;
+    lastFailureCode: string | null;
+    lastFailureMessage: string | null;
+  } | null;
   items: { productName: string; unitAmount: number; quantity: number }[];
+};
+
+export type OrderDetail = Order & {
+  events: { id: string; type: string; status: string; stripeCreatedAt: string }[];
 };
 
 export type Product = {
@@ -68,17 +80,21 @@ export async function getCart(userId: string): Promise<Cart | null> {
 }
 
 // null when there is no such order for this user (the API answers 404 for someone else's).
-async function getOrderAt(path: string, userId: string): Promise<Order | null> {
+async function getAsUser<T>(path: string, userId: string): Promise<T | null> {
   const res = await fetch(`${API_URL}/api${path}`, { headers: { [DEMO_USER_HEADER]: userId } });
   if (res.status === 404 || res.status === 401) return null;
   if (!res.ok) throw new Error(`GET /api${path} failed: ${res.status}`);
   return res.json();
 }
 
+export function getOrders(userId: string) {
+  return getAsUser<Order[]>("/orders", userId);
+}
+
 export function getOrder(userId: string, orderId: string) {
-  return getOrderAt(`/orders/${encodeURIComponent(orderId)}`, userId);
+  return getAsUser<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`, userId);
 }
 
 export function getOrderByCheckoutSession(userId: string, sessionId: string) {
-  return getOrderAt(`/checkout/sessions/${encodeURIComponent(sessionId)}`, userId);
+  return getAsUser<Order>(`/checkout/sessions/${encodeURIComponent(sessionId)}`, userId);
 }

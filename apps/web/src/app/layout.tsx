@@ -33,6 +33,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               TechCart
             </Link>
             <div className="flex items-center gap-4">
+              <Link href="/orders" className="text-sm hover:underline">
+                Orders
+              </Link>
               <Link href="/cart" className="text-sm hover:underline">
                 Cart
               </Link>

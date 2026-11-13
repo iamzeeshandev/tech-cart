@@ -23,13 +23,24 @@ export function toOrderResponse(
   order: OrderWithRelations,
   checkoutUrl = order.payments.at(0)?.checkoutUrl ?? null,
 ) {
+  const payment = order.payments.at(0);
   return {
     orderId: order.id,
     status: order.status,
     totalAmount: order.totalAmount,
     currency: order.currency,
+    createdAt: order.createdAt,
+    paidAt: order.paidAt,
     reservationExpiresAt: order.reservationExpiresAt,
     checkoutUrl,
+    payment: payment
+      ? {
+          status: payment.status,
+          stripePaymentIntentId: payment.stripePaymentIntentId,
+          lastFailureCode: payment.lastFailureCode,
+          lastFailureMessage: payment.lastFailureMessage,
+        }
+      : null,
     items: order.items.map(({ productName, unitAmount, quantity }) => ({
       productName,
       unitAmount,
@@ -46,6 +57,24 @@ export class OrderService {
     return this.prisma.order.findUnique({
       where: { userId_idempotencyKey: { userId, idempotencyKey } },
       include: orderInclude,
+    });
+  }
+
+  listForUser(userId: string) {
+    return this.prisma.order.findMany({
+      where: { userId },
+      include: orderInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Webhook events whose object carried this order's id in its metadata: the session's,
+  // and the PaymentIntent's and Charge's (copied there through payment_intent_data).
+  findStripeEvents(orderId: string) {
+    return this.prisma.stripeEvent.findMany({
+      where: { payload: { path: ['data', 'object', 'metadata', 'orderId'], equals: orderId } },
+      select: { id: true, type: true, status: true, stripeCreatedAt: true },
+      orderBy: [{ stripeCreatedAt: 'asc' }, { receivedAt: 'asc' }],
     });
   }
 
