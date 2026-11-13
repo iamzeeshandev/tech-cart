@@ -7,9 +7,9 @@ _Last updated: 2026-11-12_
 
 ## Current status
 
-- **Current phase:** Phase 3 complete (PR into `dev` pending). Waiting for approval to start Phase 4
-- **Current branch:** `feature/p3-cart` (one branch and one PR for the phase, one commit per task)
-- **Next task:** Phase 4 ★ hosted Stripe Checkout: orders + stock reservation, Stripe Customer, Checkout Session, Pay button
+- **Current phase:** Phase 4 ★ in progress. Tasks 1–3 done. Task 3 (web Checkout button, success and cancel pages) tested with a real sandbox payment; waiting for its commit, then the phase wrap-up
+- **Current branch:** `feature/p4-checkout` (one branch and one PR for the phase, one commit per task)
+- **Next task:** Phase 4 task 3: web Checkout button, success and cancel pages
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -43,7 +43,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
 | 2 | Feature: product catalog | ✅ Done (2026-11-12) |
 | 3 | Feature: demo users + cart | ✅ Done (2026-11-12) |
-| 4 | Feature: hosted Stripe Checkout | ⬜ Pending |
+| 4 | Feature: hosted Stripe Checkout | 🔄 In progress |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
 | 6 | Payment reliability & reconciliation | ⬜ Pending |
 | 7 | Refunds & order management | ⬜ Pending — 🏁 Milestone 2 (`v0.2.0`) |
@@ -69,6 +69,12 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 
 - [x] 1. `User` (+ `stripeCustomerId`, unused until Phase 4) and `CartItem` models + migration `demo_users_cart`; 3 seeded demo users; `DemoUserGuard` + `@CurrentUser()`; `GET /api/demo-users`; `GET /api/cart`, `POST /api/cart/items`, `PATCH`/`DELETE /api/cart/items/:itemId`; zod body validation; Swagger Authorize
 - [x] 2. Web: demo-user dropdown in the header (cookie), add-to-cart button on the product page, `/cart` page with −/+/remove and a display-only subtotal; `next build` passes
+
+### Phase 4 tasks
+
+- [x] 1. `Order` / `OrderItem` / `Payment` + enums (migration `checkout_orders`, all Phase 4 fields); `OrderService.createFromCart` (one transaction: validate, claim the key, reserve stock, snapshot prices); `POST /api/checkout` with a required `Idempotency-Key`. Tested: 401/400 validation, empty cart, $0.35 < minimum, Sarah vs James race for the last Orbit Mini (one 201, one 409, the loser's Pixelon reservation rolled back), replay → 200 + `Idempotent-Replayed`, per-user key scope, 5 parallel same-key requests → one order, stock moved once (Postgres logged 4 unique-index collisions)
+- [x] 2. Stripe Customer per user + Checkout Session (`price_data` from snapshots, metadata, `expires_at`, Stripe idempotency key from the payment id); response gains `checkoutUrl`. Tested: retrying the Task 1 orders with < 30 min of reservation left → Stripe `invalid_request_error` on `expires_at` → 502, orders `CANCELLED`, all stock released; happy path → session matches our order in Stripe (`amount_total`, customer, `client_reference_id`, metadata, `expires_at` = `reservationExpiresAt`, `payment_intent: null`); replay → same `checkoutUrl`, no Stripe call; 5 parallel same-key requests for a user without a Customer → one order, one Customer, one session
+- [x] 3. Web: Checkout button (redirect to Stripe), success and cancel pages; pay with test cards and observe the deliberate gap (Stripe paid, DB still `PENDING_PAYMENT`). Added `GET /api/checkout/sessions/:sessionId` and `GET /api/orders/:orderId` (owner-only). Tested: another user or a forged `session_id` → "couldn't find"; Sarah bought an Aero 14 (decline `0002`, then `4242`): Stripe shows the session `complete`/`paid`, PI `succeeded` (one PI, two Charges), fee 3797, net 126103, 7 events. Our DB still shows the order `PENDING_PAYMENT`, the payment `PENDING`, the stock reserved and the cart full
 
 ## Important commits
 
@@ -133,6 +139,16 @@ Full reasoning lives in plan §10. One line each:
 | D50 | 2026-11-12 | Web identity: the header dropdown stores the demo user in a readable `demoUserId` cookie. Server Components read it with `cookies()` and send `x-demo-user-id`; browser cart calls send the same header through the `/api` proxy. (Real apps: an httpOnly session cookie that only the server reads.) |
 | D51 | 2026-11-12 | Cart changes are browser `fetch` calls to `/api/cart/...` followed by `router.refresh()` (visible in DevTools, the same shape as Phase 4's checkout POST); no Server Actions |
 | D52 | 2026-11-12 | A cookie for a user that no longer exists (API 401) makes the cart page ask the user to pick a demo user, instead of erroring |
+| D53 | 2026-11-12 | Phase 4 in 3 tasks (orders → Stripe session → web) with one migration (`checkout_orders`) holding every Phase 4 field. Enum values grow per phase (`PAID`, `EXPIRED`… in Phase 5) |
+| D54 | 2026-11-12 | Reservation = session lifetime = **35 min** (replaces D9's 30). Stripe requires `expires_at` ≥ 30 min after session creation; the 5 min buffer lets a retry reuse the same persisted `expires_at`, so the Stripe idempotency key still matches |
+| D55 | 2026-11-12 | `OrderService.createFromCart` is one interactive transaction: read cart → active + USD + ≥ $0.50 → `Order` + `OrderItem` snapshots + `Payment(PENDING)` → per-item conditional `updateMany` reservation (sorted by `productId` to avoid deadlocks). Any error rolls back the order and every reservation |
+| D56 | 2026-11-12 | Client idempotency: required `Idempotency-Key` UUID header; `@@unique([userId, idempotencyKey])`. A replay returns the same order with 200 + `Idempotent-Replayed: true`. The order is inserted **before** stock is reserved, so a simultaneous duplicate fails on the unique index (P2002) without touching stock and returns the winner. Reserving first was a bug: when the winner took the last units, the duplicate returned a false 409 "Not enough stock". Failed attempts store nothing, so a retry runs again |
+| D57 | 2026-11-12 | The cart stays until payment succeeds (cleared in Phase 5). `checkout` module orchestrates, `order` module owns orders and stock, `payment` module stays the only Stripe importer |
+| D58 | 2026-11-12 | Hand-written idempotency rather than `@nestjs/idempotency` (a generic interceptor that stores responses per key). Here the key sits on the `Order` row, inside the same transaction as the reservation, so "one order per key" is enforced by Postgres. Learning the mechanism is the goal |
+| D59 | 2026-11-12 | One Stripe Customer per user, created at their first checkout with idempotency key `customer:<userId>` and `metadata.userId`; saved only into an empty `stripeCustomerId` column, so concurrent checkouts can't overwrite each other |
+| D60 | 2026-11-12 | Checkout Session params come only from saved rows (item snapshots sorted by `productId`, `reservationExpiresAt`, ids, `WEB_URL`), so a retry sends an identical request under `checkout-session:<paymentId>` and Stripe returns the session it already made. `client_reference_id` = orderId; `metadata` {orderId, paymentId} on the session and, through `payment_intent_data`, on the PaymentIntent. No product images |
+| D61 | 2026-11-12 | Stripe failures while starting a session. 4xx except 409/429 is permanent: guarded `PENDING_PAYMENT → CANCELLED`, stock released, payment `FAILED`, response 502. Everything else (connection, 5xx, 409, 429, DB) has an unknown outcome: the order and stock are kept, the response is 503, and a retry with the same key resumes. A retry later than the 5 min buffer gets Stripe's "expires_at must be ≥ 30 min" → cancelled |
+| D62 | 2026-11-13 | Web checkout. The button keeps its `Idempotency-Key` only when the outcome is unknown (network error, 503), so the next click resumes; any clear answer means a new key next time. The success page shows our DB order by `session_id` (`GET /api/checkout/sessions/:id`; Phase 5 adds Stripe verification there). The cancel page offers "Resume payment" with the stored `checkoutUrl` (same session, no second order) |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |
@@ -158,10 +174,11 @@ Full reasoning lives in plan §10. One line each:
 ## Issues & blockers
 
 - Resolved: Prisma couldn't reach `localhost:5435` because Windows resolves `localhost` to IPv6 `::1` first, while the container listens on IPv4 only. Fixed by using `127.0.0.1` in `DATABASE_URL`.
-- Note: `prisma init` (7.10) also writes AI-agent skill folders (`.claude/`, `.windsurf/`, `.agents/`, `skills-lock.json`). They were deleted as noise.
+- Note: `prisma init` (7.10) also writes AI-agent skill folders (`.claude/`, `.windsurf/`, `.agents/`, `skills-lock.json`). They were deleted as noise. `prisma generate` asks to install them too; `db:generate` now passes `--no-hints` to skip that prompt.
 - Resolved: the Stripe account is a US sandbox, so ACH Direct Debit can be tested in Phase 9b. Live mode will never be activated.
 - Note: with Cache Components, a product page that calls `notFound()` returns HTTP **200** with `<meta name="robots" content="noindex">`, because the static shell has already been streamed. The page content is the 404 page. Acceptable here.
 - Note: if `nest start --watch` ever leaves `apps/api/dist` deleted with nothing on :4000, restart `pnpm dev`.
+- Note: in Git Bash, `stripe post /v1/...` gets its path rewritten into a Windows path. Prefix it with `MSYS_NO_PATHCONV=1` (PowerShell is unaffected).
 
 ## Learning progress
 
@@ -193,4 +210,5 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | — | `feature/p0-*` | 0 | Merged locally before PRs were adopted |
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
 | [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
-| (link) | `feature/p3-cart` | 3 | Open |
+| [#3](https://github.com/iamzeeshandev/tech-cart/pull/3) | `feature/p3-cart` | 3 | Merged |
+| — | `feature/p4-checkout` | 4 | In progress |

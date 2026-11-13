@@ -6,5 +6,6 @@ import { stripeClientProvider } from './stripe.client.js';
 @Module({
   controllers: [PaymentController],
   providers: [stripeClientProvider, PaymentService],
+  exports: [PaymentService],
 })
 export class PaymentModule {}

@@ -28,6 +28,7 @@ model Product {
   isActive    Boolean    @default(true)
   inventory   Inventory?
   cartItems   CartItem[]
+  orderItems  OrderItem[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -49,6 +50,7 @@ model User {
   // Set once in Phase 4, then reused so every payment links to the same Stripe Customer.
   stripeCustomerId String?    @unique
   cartItems        CartItem[]
+  orders           Order[]
   createdAt        DateTime   @default(now())
 }
 
@@ -63,4 +65,60 @@ model CartItem {
   createdAt DateTime @default(now())
 
   @@unique([userId, productId])
+}
+
+// More values arrive with webhooks (PAID, EXPIRED, ...) in Phase 5.
+enum OrderStatus {
+  PENDING_PAYMENT
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  FAILED
+}
+
+model Order {
+  id                   String      @id @default(cuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id])
+  status               OrderStatus @default(PENDING_PAYMENT)
+  currency             String
+  totalAmount          Int
+  // The client's Idempotency-Key for POST /api/checkout: a retry returns this order instead of a second one.
+  idempotencyKey       String
+  // Stock stays reserved until then; also sent to Stripe as the session's expires_at.
+  reservationExpiresAt DateTime
+  items                OrderItem[]
+  payments             Payment[]
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@unique([userId, idempotencyKey])
+}
+
+// Snapshot of what the customer agreed to pay, unaffected by later price or name changes.
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  productName String
+  unitAmount  Int
+  quantity    Int
+}
+
+// One row per payment attempt. Phase 4 has one per order; retries and refunds come later.
+model Payment {
+  id                      String        @id @default(cuid())
+  orderId                 String
+  order                   Order         @relation(fields: [orderId], references: [id])
+  status                  PaymentStatus @default(PENDING)
+  amount                  Int
+  currency                String
+  stripeCheckoutSessionId String?       @unique
+  checkoutUrl             String?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
 }

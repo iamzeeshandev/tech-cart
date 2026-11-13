@@ -14,6 +14,16 @@ export type CartItem = {
 
 export type Cart = { items: CartItem[]; subtotal: number; currency: string };
 
+export type Order = {
+  orderId: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
+  reservationExpiresAt: string;
+  checkoutUrl: string | null;
+  items: { productName: string; unitAmount: number; quantity: number }[];
+};
+
 export type Product = {
   id: string;
   slug: string;
@@ -55,4 +65,20 @@ export async function getCart(userId: string): Promise<Cart | null> {
   if (res.status === 401) return null;
   if (!res.ok) throw new Error(`GET /api/cart failed: ${res.status}`);
   return res.json();
+}
+
+// null when there is no such order for this user (the API answers 404 for someone else's).
+async function getOrderAt(path: string, userId: string): Promise<Order | null> {
+  const res = await fetch(`${API_URL}/api${path}`, { headers: { [DEMO_USER_HEADER]: userId } });
+  if (res.status === 404 || res.status === 401) return null;
+  if (!res.ok) throw new Error(`GET /api${path} failed: ${res.status}`);
+  return res.json();
+}
+
+export function getOrder(userId: string, orderId: string) {
+  return getOrderAt(`/orders/${encodeURIComponent(orderId)}`, userId);
+}
+
+export function getOrderByCheckoutSession(userId: string, sessionId: string) {
+  return getOrderAt(`/checkout/sessions/${encodeURIComponent(sessionId)}`, userId);
 }
