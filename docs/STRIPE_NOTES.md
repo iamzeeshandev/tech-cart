@@ -31,15 +31,19 @@ Revision sheet: the cheat sheet first, then each phase in build order. Update ru
 | BalanceTransaction | `txn_` | Money in your Stripe balance: amount, fee, net, `pending` → `available` |
 | Refund | `re_` | Money back to the original payment method |
 | Event | `evt_` | A record of every state change; what webhooks deliver |
-| Checkout Session | `cs_` | Hosted payment page (Phase 4) |
+| Checkout Session | `cs_` | Stripe-hosted page for a fixed list of line items; creates the PaymentIntent when the customer clicks Pay |
 
 **PaymentIntent statuses:** `requires_payment_method` → (`requires_confirmation`) → `requires_action` (3DS) → `processing` → `succeeded` · also `requires_capture`, `canceled`. A decline sends it back to `requires_payment_method` (retryable).
 
-**Events seen so far:** `payment_intent.created/succeeded/payment_failed` · `charge.succeeded/failed/updated/refunded` · `refund.created/updated` (`charge.refund.updated` is deprecated).
+**Checkout Session statuses:** `status` `open` → `complete` | `expired` · `payment_status` `unpaid` | `paid` | `no_payment_required`. A decline keeps it `open`.
+
+**Events seen so far:** `payment_intent.created/succeeded/payment_failed` · `charge.succeeded/failed/updated/refunded` · `refund.created/updated` (`charge.refund.updated` is deprecated) · `checkout.session.completed`. Creating a Checkout Session emits **no** event.
+
+**Stripe error → action:** 4xx except 409/429 = Stripe rejected the request, so sending it again can't help (fix it or give up) · 409 (same idempotency key still in progress), 429, 5xx, network error/timeout = outcome unknown, so retry with the **same** idempotency key.
 
 **Test cards:** `4242 4242 4242 4242` success · `4000 0000 0000 0002` generic decline · `4000 0000 0000 9995` insufficient funds · more as we use them.
 
-**CLI:** `stripe login` · `stripe <resource> create|retrieve|list` (`-d key=val`, `-e` expand, `-i` idempotency key) · `stripe listen --forward-to <url>` · `stripe trigger <event>` · `stripe events resend <evt>` · `stripe logs tail`.
+**CLI:** `stripe login` · `stripe <resource> create|retrieve|list` (`-d key=val`, `-e` expand, `-i` idempotency key) · `stripe checkout sessions retrieve cs_…` · `stripe charges list --payment-intent pi_…` · `stripe listen --forward-to <url>` · `stripe trigger <event>` · `stripe events resend <evt>` · `stripe logs tail`. In Git Bash, prefix raw paths: `MSYS_NO_PATHCONV=1 stripe get /v1/events`.
 
 ---
 
@@ -186,3 +190,56 @@ format.format(amount / 10 ** format.resolvedOptions().maximumFractionDigits) // 
 - **Why doesn't the cart store prices?** Prices change and the browser can lie. Checkout re-reads prices from the DB, so a stored price could only be stale or forged.
 - **Two users both have the last Orbit Mini in their carts. Who gets it?** The cart doesn't decide. It only gives early feedback, and the stock reservation at checkout decides.
 - **How do you stop a user changing another user's cart item?** Put the authenticated user into every query (`where: { id, userId }`) and return 404, which doesn't even confirm the item exists.
+
+---
+
+## Phase 4 — Hosted Checkout: order, reserve, redirect
+
+**Goal:** turn the cart into a server-priced order with reserved stock, then send the customer to a Stripe-hosted page to pay exactly that amount.
+
+**Sequence**
+1. Browser `POST /api/checkout` with `Idempotency-Key: <uuid>` and **no body** (no prices, no amounts).
+2. One DB transaction: read cart → active, USD, ≥ $0.50 → insert `Order(PENDING_PAYMENT)` + `OrderItem` snapshots + `Payment(PENDING)` (this claims the key) → reserve stock per item with `UPDATE … WHERE available >= qty`.
+3. User's first checkout: `customers.create` with key `customer:<userId>` → save `cus_` on `User`.
+4. `checkout.sessions.create` with key `checkout-session:<paymentId>` → `cs_`: `status: open`, `payment_status: unpaid`, `payment_intent: null`, `url`.
+5. Save `cs_` + url on `Payment` → `201 { checkoutUrl }` → `window.location.assign(checkoutUrl)`.
+6. On Stripe's page, Pay creates the PaymentIntent. A decline adds a failed Charge; the PI returns to `requires_payment_method` and the session stays `open`.
+7. Success → `charge.succeeded`, `payment_intent.succeeded`, `checkout.session.completed` → redirect to `success_url?session_id=cs_…`.
+8. Our DB still says `PENDING_PAYMENT`: the events exist in Stripe, but nobody receives them yet (Phase 5).
+
+**Why**
+- **Hosted page:** Stripe collects card data, 3DS and wallets, so we stay in the lightest PCI scope (SAQ A). No Stripe.js and no publishable key are needed.
+- **Snapshots:** `OrderItem` keeps the name and `unitAmount` the customer agreed to; `price_data` is built from them, never from live prices or the browser.
+- **Insert the order before reserving:** a duplicate request with the same key collides on the unique index before it touches stock.
+- **`expires_at` = reservation end.** 35 min = Stripe's 30-min minimum + 5 min, so a retry can resend the *same* saved `expires_at`.
+- **Every session param comes from saved rows** (items sorted by `productId`): a retry is byte-identical, so Stripe returns the session it already made.
+- **`client_reference_id` vs `metadata`:** one id on the session vs key-value pairs. `payment_intent_data.metadata` copies them onto the PaymentIntent, and Stripe copied them onto the Charge too, so later events can be traced back to our order.
+
+| Two layers of idempotency | Key | Protects against |
+|---|---|---|
+| Browser → our API | `Idempotency-Key` header, `@@unique([userId, idempotencyKey])` | double-click, client retry → one order, one reservation |
+| Our API → Stripe | `customer:<userId>`, `checkout-session:<paymentId>` | our retry after a timeout → one Customer, one session |
+
+**Gotchas** (each one hit in this phase)
+- Reserving stock *before* claiming the key gave a duplicate request a false 409 "Not enough stock". Insert the order first.
+- Treating `StripeIdempotencyError` as permanent: a concurrent same-key request gets **409 "in progress"**, which would have cancelled a healthy order. Classify by status code.
+- A retry with less than 30 min left → `invalid_request_error`: *"The `expires_at` timestamp must be at least 30 minutes from Checkout Session creation."* Cancel the order and release the stock.
+- An unordered relation `include` can reorder `line_items` on retry → `idempotency_error`. Sort.
+- `{CHECKOUT_SESSION_ID}` is documented for `success_url` only; our `cancel_url` carries `order_id`.
+- **Abandoned checkout:** the session expires at Stripe but our stock stays reserved, which blocked Sarah from re-buying the last Orbit Mini. Phase 5 releases it on `checkout.session.expired`.
+- The cart stays until payment is confirmed. Until then a second Checkout click creates a second order, so the same cart can be paid twice.
+
+**Code:** `apps/api/src/modules/order/order.service.ts` (transaction, cancel), `apps/api/src/modules/checkout/checkout.service.ts` (orchestration, error policy), `apps/api/src/modules/payment/payment.service.ts` (the only Stripe calls), `apps/web/src/components/checkout-button.tsx`, `apps/web/src/app/checkout/{success,cancel}/page.tsx`
+```ts
+tx.inventory.updateMany({ where: { productId, quantityAvailable: { gte: qty } }, data: { quantityAvailable: { decrement: qty }, quantityReserved: { increment: qty } } }) // count 0 → 409
+```
+
+**Observed (Aero 14, 13 Nov):** session created 11:10:30; PI created at Pay, 11:12:07. Decline `0002`, then `4242`: one PI, two Charges. Fee 3797, net 126103. 7 events, `checkout.session.completed` at 11:12:49. DB: order `PENDING_PAYMENT`, payment `PENDING`, stock reserved, cart full.
+
+**Q&A**
+- **Why does the browser send no amount?** Anything from the browser can be edited. The server reads the cart's product ids and quantities, re-reads prices from the DB, snapshots them, and builds `price_data` from the snapshots.
+- **How do you stop a double-click creating two orders or two sessions?** Two idempotency layers: the client key is unique per user in our DB, so a duplicate replays the first order. Our Stripe key is derived from the payment row, so even concurrent duplicates get the same `cs_` (proved with 5 parallel requests: 1 order, 1 Customer, 1 session).
+- **Session creation times out. Did Stripe create it?** Unknown. Keep the order and stock and answer 503; a retry with the same key resends the identical request, and Stripe returns the session if it exists or creates it now. A 4xx is different: cancel and release stock.
+- **Why can't the success redirect mark the order paid?** Anyone can open that URL with any `session_id`, and the redirect may never happen (closed tab). Only a verified webhook or a server-side session retrieve is proof.
+- **What happens to stock if the customer never comes back?** It stays reserved until the session's `expires_at`. Stripe then emits `checkout.session.expired`, and the handler (Phase 5) releases it. Without that handler it stays reserved forever, which we saw.
+- **`client_reference_id` or `metadata`: which do you use?** Both carry our ids. `client_reference_id` is a single reconciliation id on the session; `metadata` (plus `payment_intent_data.metadata`) reaches the PaymentIntent and Charge, so `payment_intent.*` and `charge.*` events map back to the order.
