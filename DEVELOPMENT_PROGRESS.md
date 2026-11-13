@@ -3,13 +3,13 @@
 Learning project: Stripe integration across Next.js, NestJS and PostgreSQL.
 Full plan: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 
-_Last updated: 2026-11-12_
+_Last updated: 2026-11-13_
 
 ## Current status
 
-- **Current phase:** Phase 4 ★ in progress. Tasks 1–3 done. Task 3 (web Checkout button, success and cancel pages) tested with a real sandbox payment; waiting for its commit, then the phase wrap-up
+- **Current phase:** Phase 4 ★ complete (2026-11-13). Waiting for the interview answers and the PR into `dev`
 - **Current branch:** `feature/p4-checkout` (one branch and one PR for the phase, one commit per task)
-- **Next task:** Phase 4 task 3: web Checkout button, success and cancel pages
+- **Next task:** Phase 5 ★ webhooks & payment confirmation (after approval)
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -43,7 +43,7 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 | 1 | Stripe fundamentals lab | ✅ Done (2026-11-11) |
 | 2 | Feature: product catalog | ✅ Done (2026-11-12) |
 | 3 | Feature: demo users + cart | ✅ Done (2026-11-12) |
-| 4 | Feature: hosted Stripe Checkout | 🔄 In progress |
+| 4 | Feature: hosted Stripe Checkout | ✅ Done (2026-11-13) |
 | 5 | Feature: webhooks & payment confirmation | ⬜ Pending — 🏁 Milestone 1 (`v0.1.0`) |
 | 6 | Payment reliability & reconciliation | ⬜ Pending |
 | 7 | Refunds & order management | ⬜ Pending — 🏁 Milestone 2 (`v0.2.0`) |
@@ -178,6 +178,7 @@ Full reasoning lives in plan §10. One line each:
 - Resolved: the Stripe account is a US sandbox, so ACH Direct Debit can be tested in Phase 9b. Live mode will never be activated.
 - Note: with Cache Components, a product page that calls `notFound()` returns HTTP **200** with `<meta name="robots" content="noindex">`, because the static shell has already been streamed. The page content is the 404 page. Acceptable here.
 - Note: if `nest start --watch` ever leaves `apps/api/dist` deleted with nothing on :4000, restart `pnpm dev`.
+- Known gaps until Phase 5, by design: a paid order stays `PENDING_PAYMENT`, the cart isn't cleared (a second Checkout can pay the same cart again), and an abandoned or expired session keeps its stock reserved. Test orders from 12–13 Nov still hold stock (Orbit Mini, cable and ties, one charger, one Aero 14).
 - Note: in Git Bash, `stripe post /v1/...` gets its path rewritten into a Windows path. Prefix it with `MSYS_NO_PATHCONV=1` (PowerShell is unaffected).
 
 ## Learning progress
@@ -188,6 +189,7 @@ Details, gotchas and interview Q&A live in [docs/STRIPE_NOTES.md](docs/STRIPE_NO
 - **Phase 1:** the object chain of one payment (Customer → PaymentIntent → PaymentMethod → Charge → BalanceTransaction → Refund, with Events), fees and net, decline behavior, idempotency keys (replay and mismatch error), SDK pinning, retries and timeouts.
 - **Phase 2:** prices as integer minor units in our DB (the server's trusted source for `price_data`), zero-decimal currencies, Stripe's $0.50 USD minimum and amount limits, display-only formatting, soft-hiding products.
 - **Phase 3:** the cart as untrusted input (no stored prices, zod validation, stripped fields), soft stock checks vs reservation, ownership-scoped queries (IDOR), one user → one future Stripe Customer (`stripeCustomerId @unique`).
+- **Phase 4:** hosted Checkout Sessions (`price_data` from order snapshots, `client_reference_id`, metadata on session and PaymentIntent, `expires_at` tied to the stock reservation), atomic stock reservation, two layers of idempotency (claim the key before side effects; deterministic Stripe keys with identical params), classifying Stripe errors as permanent or unknown, the session/PI/Charge lifecycle seen in a real payment, and why a redirect isn't proof of payment.
 
 ## Git workflow (quick reference): one PR per feature branch
 
@@ -211,4 +213,4 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | [#1](https://github.com/iamzeeshandev/tech-cart/pull/1) | `feature/p1-stripe-client` | 1 | Merged |
 | [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
 | [#3](https://github.com/iamzeeshandev/tech-cart/pull/3) | `feature/p3-cart` | 3 | Merged |
-| — | `feature/p4-checkout` | 4 | In progress |
+| — | `feature/p4-checkout` | 4 | Ready for PR |
