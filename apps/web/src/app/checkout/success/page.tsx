@@ -1,12 +1,26 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { OrderSummary } from "@/components/order-summary";
+import { Page } from "@/components/page";
+import { primaryAction, textLink } from "@/components/ui";
 import { getCurrentUserId, getOrderByCheckoutSession } from "@/lib/api";
 
-const messages: Record<string, string> = {
-  PAID: "Payment confirmed. Our server checked it with Stripe; the redirect alone proves nothing.",
-  PAYMENT_PROCESSING:
-    "Your payment is processing (bank payments can take a few days). This order updates when Stripe confirms it.",
-  PENDING_PAYMENT: "Stripe hasn't confirmed the payment yet. Refresh in a moment.",
+export const metadata: Metadata = { title: "Order confirmation" };
+
+const outcomes: Record<string, { heading: string; message: string }> = {
+  PAID: {
+    heading: "Thank you for your order",
+    message: "Your payment is confirmed. You can follow this order from your orders page.",
+  },
+  PAYMENT_PROCESSING: {
+    heading: "We're confirming your payment",
+    message:
+      "Your payment is processing. Bank payments can take a few days, and this order updates as soon as it's confirmed.",
+  },
+  PENDING_PAYMENT: {
+    heading: "We're confirming your payment",
+    message: "We haven't received confirmation of your payment yet. Refresh this page in a moment.",
+  },
 };
 
 export default async function CheckoutSuccessPage({ searchParams }: PageProps<"/checkout/success">) {
@@ -16,24 +30,40 @@ export default async function CheckoutSuccessPage({ searchParams }: PageProps<"/
     typeof session_id === "string" && userId
       ? await getOrderByCheckoutSession(userId, session_id)
       : null;
+  const outcome = order && (outcomes[order.status] ?? { heading: "Your order", message: "" });
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Thanks for your order</h1>
-      {order ? (
+    <Page narrow>
+      {order && outcome ? (
         <>
-          <p className="mt-2 max-w-xl text-sm text-zinc-500">{messages[order.status]}</p>
+          <h1 className="text-h1">{outcome.heading}</h1>
+          {outcome.message && <p className="mt-2 max-w-[60ch] text-muted">{outcome.message}</p>}
           <OrderSummary order={order} />
-          <Link href={`/orders/${order.orderId}`} className="mt-4 inline-block text-sm underline">
-            View order
-          </Link>
+          <div className="mt-8 flex flex-wrap items-center gap-x-6">
+            <Link href={`/orders/${order.orderId}`} className={primaryAction}>
+              View order
+            </Link>
+            <Link href="/" className={textLink}>
+              Continue shopping
+            </Link>
+          </div>
         </>
       ) : (
-        <p className="mt-4 text-zinc-500">We couldn&apos;t find this checkout.</p>
+        <>
+          <h1 className="text-h1">We couldn&apos;t find this checkout</h1>
+          <p className="mt-2 max-w-[60ch] text-muted">
+            Make sure the right demo user is selected at the top of the page, then check your orders.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-x-6">
+            <Link href="/orders" className={primaryAction}>
+              View orders
+            </Link>
+            <Link href="/" className={textLink}>
+              Continue shopping
+            </Link>
+          </div>
+        </>
       )}
-      <Link href="/" className="mt-8 inline-block text-sm underline">
-        Continue shopping
-      </Link>
-    </main>
+    </Page>
   );
 }

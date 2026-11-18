@@ -1,14 +1,16 @@
-const colors: Record<string, string> = {
-  PAID: "text-green-600",
-  PENDING_PAYMENT: "text-amber-600",
-  PAYMENT_PROCESSING: "text-amber-600",
-  PAYMENT_FAILED: "text-red-600",
+const labels: Record<string, { text: string; color: string }> = {
+  PAID: { text: "Paid", color: "text-pine" },
+  PENDING_PAYMENT: { text: "Awaiting payment", color: "text-warn" },
+  PAYMENT_PROCESSING: { text: "Payment processing", color: "text-warn" },
+  PAYMENT_FAILED: { text: "Payment failed", color: "text-danger" },
 };
 
+function humanize(status: string) {
+  const text = status.toLowerCase().replaceAll("_", " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function OrderStatus({ status }: { status: string }) {
-  return (
-    <span className={`font-mono text-sm font-semibold ${colors[status] ?? "text-zinc-500"}`}>
-      {status}
-    </span>
-  );
+  const label = labels[status] ?? { text: humanize(status), color: "text-muted" };
+  return <span className={`font-medium ${label.color}`}>{label.text}</span>;
 }

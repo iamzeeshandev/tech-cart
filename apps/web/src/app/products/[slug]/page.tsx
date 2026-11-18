@@ -1,50 +1,51 @@
-import Image from "next/image";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToCartButton } from "@/components/add-to-cart-button";
+import { Page } from "@/components/page";
+import { ProductImage } from "@/components/product-image";
 import { StockLabel } from "@/components/stock-label";
 import { getProduct } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+
+export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
+  const { slug } = await params;
+  const product = await getProduct(slug);
+  return { title: product?.name ?? "Product not found" };
+}
 
 export default async function ProductPage({ params }: PageProps<"/products/[slug]">) {
   const { slug } = await params;
   const product = await getProduct(slug);
   if (!product) notFound();
 
+  const quantity = product.inventory?.quantityAvailable ?? 0;
+
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
+    <Page>
+      <Link href="/" className="-mx-2 inline-flex min-h-11 items-center px-2 text-ui text-muted hover:text-pine">
         ← All products
       </Link>
-      <div className="mt-6 grid gap-8 md:grid-cols-2">
-        {product.imageUrl && (
-          <Image
+      <div className="mt-4 grid gap-8 md:grid-cols-12 md:gap-12">
+        <div className="md:col-span-7">
+          <ProductImage
             src={product.imageUrl}
             alt={product.name}
-            width={1200}
-            height={800}
-            sizes="(min-width: 1024px) 480px, (min-width: 768px) 45vw, 100vw"
+            sizes="(min-width: 1024px) 640px, (min-width: 768px) 55vw, 100vw"
             preload
-            className="aspect-[3/2] rounded-lg object-cover"
-          />
-        )}
-        <div>
-          <p className="text-xs uppercase text-zinc-500">{product.category.name}</p>
-          <h1 className="text-2xl font-semibold">{product.name}</h1>
-          <p className="mt-2 text-xl">{formatMoney(product.priceAmount, product.currency)}</p>
-          <p className="text-xs text-zinc-500">
-            Stripe amount: {product.priceAmount} {product.currency} (minor units)
-          </p>
-          <div className="mt-2">
-            <StockLabel quantity={product.inventory?.quantityAvailable ?? 0} />
-          </div>
-          <p className="mt-4">{product.description}</p>
-          <AddToCartButton
-            productId={product.id}
-            disabled={(product.inventory?.quantityAvailable ?? 0) === 0}
+            unavailable={quantity === 0}
           />
         </div>
+        <div className="md:col-span-5">
+          <h1 className="text-h1">{product.name}</h1>
+          <p className="mt-3 text-h2 font-medium md:text-price md:leading-none">
+            {formatMoney(product.priceAmount, product.currency)}
+          </p>
+          <StockLabel quantity={quantity} className="mt-3" />
+          <p className="mt-6 max-w-[60ch]">{product.description}</p>
+          <AddToCartButton productId={product.id} disabled={quantity === 0} />
+        </div>
       </div>
-    </main>
+    </Page>
   );
 }
