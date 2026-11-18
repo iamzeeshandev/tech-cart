@@ -4,12 +4,12 @@ import { useRef, useState } from "react";
 import { ApiError, startCheckout } from "@/lib/cart-client";
 
 const labels = {
-  idle: "Checkout",
+  idle: "Go to checkout",
   starting: "Starting checkout…",
-  redirecting: "Redirecting to Stripe…",
+  redirecting: "Opening payment page…",
 };
 
-export function CheckoutButton() {
+export function CheckoutButton({ className = "" }: { className?: string }) {
   const [state, setState] = useState<keyof typeof labels>("idle");
   const [error, setError] = useState<string | null>(null);
   const attemptKey = useRef<string | null>(null);
@@ -32,16 +32,20 @@ export function CheckoutButton() {
   }
 
   return (
-    <div className="mt-4">
+    <div className={className}>
+      {error && (
+        <p role="alert" className="mb-2 text-ui text-danger">
+          {error}
+        </p>
+      )}
       <button
         type="button"
         onClick={checkout}
         disabled={state !== "idle"}
-        className="rounded bg-zinc-900 px-6 py-2 text-sm text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+        className="min-h-11 w-full rounded-control bg-pine px-6 text-ui font-medium text-paper hover:bg-pine-deep disabled:bg-well disabled:text-muted"
       >
         {labels[state]}
       </button>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>
   );
 }

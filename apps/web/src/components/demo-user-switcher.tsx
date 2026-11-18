@@ -14,23 +14,25 @@ export function DemoUserSwitcher({
   const router = useRouter();
 
   return (
-    <select
-      aria-label="Demo user"
-      defaultValue={currentUserId ?? ""}
-      onChange={(event) => {
-        setDemoUser(event.target.value);
-        router.refresh();
-      }}
-      className="rounded border border-zinc-500/30 bg-transparent px-2 py-1 text-sm"
-    >
-      <option value="" disabled>
-        Choose a demo user
-      </option>
-      {users.map((user) => (
-        <option key={user.id} value={user.id}>
-          {user.name}
+    <label className="flex min-h-11 items-center gap-2 text-caption text-muted sm:min-h-9">
+      Demo user
+      <select
+        defaultValue={currentUserId ?? ""}
+        onChange={(event) => {
+          setDemoUser(event.target.value);
+          router.refresh();
+        }}
+        className="min-h-11 rounded-control border border-dashed border-muted bg-transparent px-2 text-caption text-ink sm:min-h-8"
+      >
+        <option value="" disabled>
+          Choose a user
         </option>
-      ))}
-    </select>
+        {users.map((user) => (
+          <option key={user.id} value={user.id}>
+            {user.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

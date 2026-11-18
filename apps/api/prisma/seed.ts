@@ -66,7 +66,7 @@ async function main() {
     const data = {
       ...product,
       isActive: product.isActive ?? true,
-      imageUrl: `https://placehold.co/600x400/png?text=${encodeURIComponent(product.name)}`,
+      imageUrl: `/products/${product.slug}.jpg`,
       category: { connect: { slug: category } },
     };
     // Re-running the seed refreshes product details but never resets stock,

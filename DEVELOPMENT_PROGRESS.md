@@ -3,13 +3,13 @@
 Learning project: Stripe integration across Next.js, NestJS and PostgreSQL.
 Full plan: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 
-_Last updated: 2026-11-13_
+_Last updated: 2026-11-19_
 
 ## Current status
 
 - **Current phase:** Phase 5 ★ complete (2026-11-13): the full payment flow works end to end. Waiting for the PR into `dev`, then 🏁 Milestone 1 (`dev → main`, tag `v0.1.0`)
-- **Current branch:** `feature/p5-webhooks` (one branch and one PR for the phase, one commit per task)
-- **Next task:** choose the next phase after Milestone 1 (recommended: Phase 6 reliability, then Phase 7 refunds)
+- **Current branch:** `feature/m1-storefront-design` (storefront redesign + real product photos, the last piece of Milestone 1; one commit per task)
+- **Next task:** run the full test purchase (`4242 4242 4242 4242`), then PR into `dev`, then Milestone 1 (`dev → main`, tag `v0.1.0`); after that choose the next phase (recommended: Phase 6 reliability, then Phase 7 refunds)
 - **Revision notes:** [docs/STRIPE_NOTES.md](docs/STRIPE_NOTES.md), updated at every phase end per [docs/STRIPE_NOTES_PROMPT.md](docs/STRIPE_NOTES_PROMPT.md)
 
 ## How to run
@@ -81,6 +81,14 @@ pnpm dev                          # web http://localhost:3000, api http://localh
 - [x] 1. Migration `webhooks` (all Phase 5 schema: new order/payment statuses, `Order.paidAt`, `Payment.stripePaymentIntentId` + last failure, `StripeEvent`); `rawBody: true`; `POST /api/webhooks/stripe` verifies the signature and logs every event (dedup by `evt_` id; types we don't handle → IGNORED + 200; handler error → FAILED + 500). Tested: real events through `stripe listen` → verified, logged IGNORED, 200 in ~40 ms (and delivered out of order: `charge.succeeded` before `payment_intent.created`); missing, forged, wrong-secret, tampered-amount, 10-minute-old and re-serialized bodies → 400; sequential redelivery → DUPLICATE; **20 simultaneous copies all passed the dedup check** (`attempts = 20`), so handlers must be guarded
 - [x] 2. Handlers + one idempotent `fulfillCheckoutSession`: `checkout.session.completed` (paid → PAID, stock sold, ordered items leave the cart; unpaid → PAYMENT_PROCESSING), `async_payment_succeeded/failed`, `expired` (release stock), `payment_intent.payment_failed` (record the failure). The success-page endpoint calls the same fulfill. Tested: the real Aero 14 `checkout.session.completed` delivered **20 times concurrently** → PAID once, reservation 1 → 0, cart emptied, PI id saved; 12 Nov `checkout.session.expired` events redelivered with `stripe events resend` (20 h late) → both orders EXPIRED, all stock released (0 reserved store-wide); the old decline redelivered after success → no change; a session that isn't ours → IGNORED, no Stripe call; live `checkout.sessions.expire` on a new James checkout → EXPIRED, charger back, cart kept
 - [x] 3. Web: success page shows the confirmed status; order list + order detail. `GET /api/orders` (newest first), `GET /api/orders/:id` with payment details and the order's Stripe event timeline (events whose object carried `metadata.orderId`), Orders link in the header. Tested: Emily's list (PAID + 2 CANCELLED), detail shows the PaymentIntent, the earlier `generic_decline` and 7 events (2 PROCESSED); James opening Emily's order → 404 page; the Aero 14 success page now says PAID; a live purchase with a decline then `4242` → PAID straight away, cart emptied
+
+### Milestone 1: storefront tasks
+
+- [x] 1. Real product photos: 10 Unsplash JPGs (1200×800) in `apps/web/public/products/`, credited in `CREDITS.md`; seed sets `imageUrl` to `/products/<slug>.jpg`; the `placehold.co` `remotePatterns` entry is gone; every `next/image` has `sizes` and a 3:2 frame
+- [x] 2. Design plan (palette, one type family, spacing and radius scale, wireframes, the receipt as the memorable element), approved before any UI code
+- [x] 3. Build: tokens and shell (sticky header, `Cart (n)` from `getCart`, demo-user strip, test-mode footer), catalog grouped by category with a category row, product page, cart with a sticky checkout bar on phones, success and cancel, orders list and detail (Stripe events collapsed under "For developers"), `loading.tsx` and `not-found.tsx`
+- [x] 4. Critique and polish: reviewed in a 390 px frame and at desktop width; fixed the category-tile overflow, a misleading decline message on paid orders, the cancel page for already-paid orders, and the demo select's touch target; added a skip link; keyboard run, contrast and reduced-motion checked
+- [ ] 5. Full test purchase in test mode, then the PR into `dev`
 
 ## Important commits
 
@@ -162,6 +170,10 @@ Full reasoning lives in plan §10. One line each:
 | D67 | 2026-11-13 | Guarded transitions: each starts with `updateMany WHERE status IN (...)` inside a transaction. The payment row guards fulfillment and the order row guards release, so a concurrent duplicate waits on the row lock, then matches 0 rows. markPaid: payment SUCCEEDED + PI id, order PAID + `paidAt`, reserved stock → sold, the ordered quantities leave the cart (later additions stay). Paid but the order is already closed → throw (needs a refund, Phase 7). `expired` → EXPIRED and `async_payment_failed` → PAYMENT_FAILED, both release stock and keep the cart |
 | D68 | 2026-11-13 | `payment_intent.payment_failed` records the decline code and message on a PENDING payment only, so a late delivery after success changes nothing. `payment_intent.succeeded` and other types are IGNORED: fulfillment reads the session |
 | D69 | 2026-11-13 | Orders UI: `/orders` list and `/orders/[orderId]` detail. The detail shows the payment (status, PaymentIntent, last decline) and a timeline of the webhook events whose object carried `metadata.orderId`, queried with a Prisma JSON-path filter (unindexed: fine here; at scale, store `orderId` as a column). The timeline is a learning aid; a real store would keep it in an admin view |
+| D70 | 2026-11-13 | Product photos are committed files in `apps/web/public/products/<slug>.jpg` and the database stores only the path (`/products/<slug>.jpg`). No base64 in Postgres and no cloud storage yet; moving to object storage later changes that value plus one `next.config.ts` line. Replaces the placehold.co URLs of D38/D43 |
+| D71 | 2026-11-13 | Storefront design system: light only (no half-done dark mode), tokens in `globals.css` `@theme` (paper, well, ink, muted, pine accent, rule), photos blended onto one neutral surface with `mix-blend-multiply`, radii by role (2 px photos, 6 px controls), no shadows, hairline rules instead of cards. The memorable element is the receipt ledger (dotted leaders) on cart, success and order pages |
+| D72 | 2026-11-13 | One typeface, Schibsted Grotesk via `next/font/google`, weights 400-650 (replaces Geist/Arial). Its tabular figures render like typewriter text, so `tabular-nums` is not used |
+| D73 | 2026-11-19 | Landing page after studying Apple, teenage engineering and Framework: large plain title, a category row with counts, then category sections (heading column + 3-up grid). No hero, banners or fake social proof. Header cart count is server-rendered inside `<Suspense>`; `AddToCartButton` calls `router.refresh()` so it updates |
 | D46 | 2026-11-12 | Request bodies are validated with zod via Nest's global `StandardSchemaValidationPipe`; the same schema documents the Swagger body. Unknown keys (e.g. a tampered `priceAmount`) are stripped |
 | D47 | 2026-11-12 | Cart stock and limit checks (max 10 per product) are early feedback only (409); checkout re-checks and reserves stock |
 | D48 | 2026-11-12 | Ownership is enforced inside the query (`where: { id, userId }`), so another user's cart item returns 404 (prevents IDOR) |
@@ -230,4 +242,5 @@ Never: commit on `main` directly, force-push, rebase shared branches, squash/reb
 | [#2](https://github.com/iamzeeshandev/tech-cart/pull/2) | `feature/p2-catalog` | 2 | Merged |
 | [#3](https://github.com/iamzeeshandev/tech-cart/pull/3) | `feature/p3-cart` | 3 | Merged |
 | [#4](https://github.com/iamzeeshandev/tech-cart/pull/4), [#5](https://github.com/iamzeeshandev/tech-cart/pull/5) | `feature/p4-checkout` | 4 | Merged |
-| — | `feature/p5-webhooks` | 5 | Ready for PR |
+| — | `feature/p5-webhooks` | 5 | Reached `dev` by direct push (the branch tracked `origin/dev`), so there is no PR |
+| — | `feature/m1-storefront-design` | M1 | In progress (create from local `dev`, push with `-u`, PR into `dev`) |
