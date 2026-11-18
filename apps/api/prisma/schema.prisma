@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id          String     @id @default(cuid())
+  categoryId  String
+  category    Category   @relation(fields: [categoryId], references: [id])
+  name        String
+  slug        String     @unique
+  description String
+  imageUrl    String?
+  // Minor units (cents), the same integer Stripe expects in `unit_amount`. Floats can't hold money exactly.
+  priceAmount Int
+  currency    String     @default("usd")
+  isActive    Boolean    @default(true)
+  inventory   Inventory?
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([categoryId])
+}
+
+model Inventory {
+  productId         String  @id
+  product           Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantityAvailable Int
+  // Held by unpaid orders during Checkout (Phase 4).
+  quantityReserved  Int     @default(0)
+}
+
+model User {
+  id               String     @id @default(cuid())
+  email            String     @unique
+  name             String
+  // Set once in Phase 4, then reused so every payment links to the same Stripe Customer.
+  stripeCustomerId String?    @unique
+  cartItems        CartItem[]
+  orders           Order[]
+  createdAt        DateTime   @default(now())
+}
+
+// The cart is just the user's CartItem rows. Prices are never stored here: checkout re-reads them.
+model CartItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_PROCESSING
+  PAID
+  PAYMENT_FAILED
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
+model Order {
+  id                   String      @id @default(cuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id])
+  status               OrderStatus @default(PENDING_PAYMENT)
+  currency             String
+  totalAmount          Int
+  // The client's Idempotency-Key for POST /api/checkout: a retry returns this order instead of a second one.
+  idempotencyKey       String
+  // Stock stays reserved until then; also sent to Stripe as the session's expires_at.
+  reservationExpiresAt DateTime
+  paidAt               DateTime?
+  items                OrderItem[]
+  payments             Payment[]
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@unique([userId, idempotencyKey])
+}
+
+// Snapshot of what the customer agreed to pay, unaffected by later price or name changes.
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  productName String
+  unitAmount  Int
+  quantity    Int
+}
+
+// One row per payment attempt. Phase 4 has one per order; retries and refunds come later.
+model Payment {
+  id                      String        @id @default(cuid())
+  orderId                 String
+  order                   Order         @relation(fields: [orderId], references: [id])
+  status                  PaymentStatus @default(PENDING)
+  amount                  Int
+  currency                String
+  stripeCheckoutSessionId String?       @unique
+  checkoutUrl             String?
+  stripePaymentIntentId   String?       @unique
+  lastFailureCode         String?
+  lastFailureMessage      String?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+}
+
+enum StripeEventStatus {
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// Every webhook event received, keyed by Stripe's evt_ id: a redelivery of a PROCESSED
+// or IGNORED event is skipped, a FAILED one is processed again.
+model StripeEvent {
+  id              String            @id
+  type            String
+  apiVersion      String?
+  livemode        Boolean
+  status          StripeEventStatus @default(PROCESSING)
+  attempts        Int               @default(1)
+  lastError       String?
+  payload         Json
+  stripeCreatedAt DateTime
+  receivedAt      DateTime          @default(now())
+  processedAt     DateTime?
+
+  @@index([type])
+}

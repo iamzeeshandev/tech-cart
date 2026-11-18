@@ -1,0 +1,14 @@
+packages:
+  - "apps/*"
+
+# pnpm only runs install scripts for packages listed as true here.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
+  # Prisma installs its migration (schema) engine during install.
+  prisma: true
+  "@prisma/engines": true
+  # Install-analytics script pulled in by swagger-ui-dist; not needed.
+  "@scarf/scarf": false
+  # Pulled in by tsx. Its script only re-checks the platform binary pnpm already installs.
+  esbuild: false

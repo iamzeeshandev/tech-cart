@@ -1,0 +1,23 @@
+# Local development database only. These credentials are not secrets.
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: techcart-postgres
+    environment:
+      POSTGRES_USER: techcart
+      POSTGRES_PASSWORD: techcart
+      POSTGRES_DB: techcart
+    ports:
+      # Host port 5435 (5432–5434 are used by other local projects); localhost only.
+      - "127.0.0.1:5435:5432"
+    volumes:
+      # Postgres 18+ keeps data under /var/lib/postgresql/<major>/docker
+      - techcart-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techcart -d techcart"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  techcart-pgdata:
