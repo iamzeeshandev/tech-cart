@@ -34,7 +34,7 @@ export default async function OrderPage({ params }: PageProps<"/orders/[orderId]
         </a>
       )}
 
-      {order.payment?.lastFailureMessage && (
+      {order.status !== "PAID" && order.payment?.lastFailureMessage && (
         <p className="mt-6 max-w-[60ch] text-danger">
           The last payment attempt was declined: {order.payment.lastFailureMessage}
         </p>

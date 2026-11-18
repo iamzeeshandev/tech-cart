@@ -19,7 +19,7 @@ export function LedgerRow({
         {label}
         <span aria-hidden="true" className="min-w-4 flex-1 -translate-y-1 border-b-2 border-dotted border-rule" />
       </dt>
-      <dd className={`tabular-nums ${total ? "" : "font-medium"}`}>{amount}</dd>
+      <dd className={total ? "" : "font-medium"}>{amount}</dd>
     </div>
   );
 }

@@ -23,6 +23,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${schibsted.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
+        <a
+          href="#main"
+          className="sr-only z-30 rounded-control bg-pine px-4 py-2 text-ui font-medium text-paper focus:not-sr-only focus:absolute focus:left-4 focus:top-2"
+        >
+          Skip to content
+        </a>
         <div className="bg-well">
           <div className="mx-auto flex w-full max-w-[70rem] justify-end px-4 sm:px-6">
             <Suspense fallback={<div className="min-h-11 sm:min-h-9" />}>

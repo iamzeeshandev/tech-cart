@@ -22,7 +22,7 @@ export function DemoUserSwitcher({
           setDemoUser(event.target.value);
           router.refresh();
         }}
-        className="min-h-9 rounded-control border border-dashed border-muted bg-transparent px-2 text-caption text-ink sm:min-h-7"
+        className="min-h-11 rounded-control border border-dashed border-muted bg-transparent px-2 text-caption text-ink sm:min-h-8"
       >
         <option value="" disabled>
           Choose a user

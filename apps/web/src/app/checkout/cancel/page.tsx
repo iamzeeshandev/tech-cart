@@ -12,11 +12,14 @@ export default async function CheckoutCancelPage({ searchParams }: PageProps<"/c
   const userId = await getCurrentUserId();
   const order = typeof order_id === "string" && userId ? await getOrder(userId, order_id) : null;
   const canResume = order?.status === "PENDING_PAYMENT" && !!order.checkoutUrl;
+  const alreadyPaid = order?.status === "PAID";
 
   return (
     <Page narrow>
-      <h1 className="text-h1">Payment not completed</h1>
-      <p className="mt-2 text-muted">You haven&apos;t been charged.</p>
+      <h1 className="text-h1">{alreadyPaid ? "This order is already paid" : "Payment not completed"}</h1>
+      <p className="mt-2 text-muted">
+        {alreadyPaid ? "There's nothing more to pay." : "You haven't been charged."}
+      </p>
       {order && <OrderSummary order={order} />}
       {order && canResume && (
         <p className="mt-6 max-w-[60ch]">
@@ -30,7 +33,12 @@ export default async function CheckoutCancelPage({ searchParams }: PageProps<"/c
             Resume payment
           </a>
         )}
-        <Link href="/cart" className={canResume ? textLink : primaryAction}>
+        {alreadyPaid && (
+          <Link href={`/orders/${order.orderId}`} className={primaryAction}>
+            View order
+          </Link>
+        )}
+        <Link href="/cart" className={canResume || alreadyPaid ? textLink : primaryAction}>
           Back to cart
         </Link>
       </div>
